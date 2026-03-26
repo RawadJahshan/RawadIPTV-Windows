@@ -66,6 +66,7 @@ class _FullscreenPlayerScreenState extends State<FullscreenPlayerScreen> {
   bool _seekInFlight = false;
   Duration? _pendingSeekTarget;
   Stopwatch? _seekSw;
+  bool _isStoppingForClose = false;
 
   @override
   void initState() {
@@ -165,6 +166,7 @@ class _FullscreenPlayerScreenState extends State<FullscreenPlayerScreen> {
 
   @override
   void dispose() {
+    unawaited(_stopPlaybackForClose());
     _hideTimer?.cancel();
     _tracksSub?.cancel();
     _trackSub?.cancel();
@@ -177,43 +179,53 @@ class _FullscreenPlayerScreenState extends State<FullscreenPlayerScreen> {
   @override
   Widget build(BuildContext context) {
     final player = _playerService.player;
-    return Scaffold(
-      backgroundColor: Colors.black,
-      body: MouseRegion(
-        onHover: (_) {
-          if (!_overlayVisible) setState(() => _overlayVisible = true);
-          _scheduleHide();
-        },
-        child: GestureDetector(
-          onTap: () {
-            setState(() => _overlayVisible = !_overlayVisible);
+    return WillPopScope(
+      onWillPop: () async {
+        await _stopPlaybackForClose();
+        return true;
+      },
+      child: Scaffold(
+        backgroundColor: Colors.black,
+        body: MouseRegion(
+          onHover: (_) {
+            if (!_overlayVisible) setState(() => _overlayVisible = true);
             _scheduleHide();
           },
-          child: Stack(
-            children: [
-              Positioned.fill(
-                child: Video(controller: _playerService.videoController, fit: BoxFit.contain),
-              ),
-              if (_overlayVisible)
+          child: GestureDetector(
+            onTap: () {
+              setState(() => _overlayVisible = !_overlayVisible);
+              _scheduleHide();
+            },
+            child: Stack(
+              children: [
                 Positioned.fill(
-                  child: Container(
-                    decoration: const BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.topCenter,
-                        end: Alignment.bottomCenter,
-                        colors: [Color(0x99000000), Colors.transparent, Color(0xBB000000)],
+                  child: Video(controller: _playerService.videoController, fit: BoxFit.contain),
+                ),
+                if (_overlayVisible)
+                  Positioned.fill(
+                    child: Container(
+                      decoration: const BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          colors: [Color(0x99000000), Colors.transparent, Color(0xBB000000)],
+                        ),
                       ),
-                    ),
-                    child: SafeArea(
-                      child: Column(
-                        children: [
-                          ListTile(
-                            title: Text(widget.args.title, style: const TextStyle(color: Colors.white)),
-                            trailing: IconButton(
-                              icon: const Icon(Icons.close, color: Colors.white),
-                              onPressed: () => Navigator.of(context).pop(),
+                      child: SafeArea(
+                        child: Column(
+                          children: [
+                            ListTile(
+                              title: Text(widget.args.title, style: const TextStyle(color: Colors.white)),
+                              trailing: IconButton(
+                                icon: const Icon(Icons.close, color: Colors.white),
+                                onPressed: () async {
+                                  await _stopPlaybackForClose();
+                                  if (mounted) {
+                                    await Navigator.of(context).maybePop();
+                                  }
+                                },
+                              ),
                             ),
-                          ),
                           const Spacer(),
                           StreamBuilder<Duration>(
                             stream: player.stream.position,
@@ -277,16 +289,27 @@ class _FullscreenPlayerScreenState extends State<FullscreenPlayerScreen> {
                               );
                             },
                           ),
-                        ],
+                          ],
+                        ),
                       ),
                     ),
                   ),
-                ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
     );
+  }
+
+  Future<void> _stopPlaybackForClose() async {
+    if (_isStoppingForClose) return;
+    _isStoppingForClose = true;
+    try {
+      await _playerService.player.stop();
+    } finally {
+      _isStoppingForClose = false;
+    }
   }
 
   Future<void> _seekTo(Duration target) async {
