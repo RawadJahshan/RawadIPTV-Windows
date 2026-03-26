@@ -29,29 +29,30 @@ class Episode {
     String seasonKey,
   ) {
     final info = SafeParsing.asMap(json['info']);
+    final episodeInfo = SafeParsing.asMap(json['episode_info']);
     final ext = SafeParsing.asString(
-      json['container_extension'],
+      json['container_extension'] ?? episodeInfo['container_extension'],
       fallback: 'mp4',
     );
     final streamId = SafeParsing.asString(
-      json['id'] ?? json['episode_id'] ?? json['stream_id'],
+      json['id'] ?? json['episode_id'] ?? json['stream_id'] ?? episodeInfo['id'],
       fallback: '0',
     );
 
     return Episode(
       id: SafeParsing.asInt(streamId),
       title: SafeParsing.asString(
-        json['title'] ?? json['name'],
+        json['title'] ?? json['name'] ?? episodeInfo['title'],
         fallback: 'Episode',
       ),
       streamUrl: '$serverUrl/series/$username/$password/$streamId.$ext',
-      duration: SafeParsing.asString(info['duration']),
-      plot: SafeParsing.asString(info['plot']),
+      duration: SafeParsing.asString(info['duration'] ?? episodeInfo['duration']),
+      plot: SafeParsing.asString(info['plot'] ?? episodeInfo['plot']),
       episodeNum: SafeParsing.asInt(
-        json['episode_num'] ?? json['episode_number'],
+        json['episode_num'] ?? json['episode_number'] ?? episodeInfo['episode_num'],
       ),
       season: SafeParsing.asInt(
-        json['season'] ?? json['season_num'] ?? seasonKey,
+        json['season'] ?? json['season_num'] ?? episodeInfo['season'] ?? seasonKey,
       ),
       containerExtension: ext,
     );

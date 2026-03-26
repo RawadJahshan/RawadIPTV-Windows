@@ -58,6 +58,7 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
 
   Future<void> _play() async {
     final sw = Stopwatch()..start();
+    PerformanceLogger.log('play_button_pressed', Duration.zero, details: widget.movie.name);
     Duration? startAt;
     if (_progress != null) {
       final positionMs = int.tryParse('${_progress!['position_ms']}') ?? 0;
