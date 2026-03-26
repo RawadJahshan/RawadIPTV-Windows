@@ -52,8 +52,6 @@ class _MoviePlayerScreenState extends State<MoviePlayerScreen> {
   bool _isSeeking = false;
   bool _hasError = false;
   Duration _buffered = Duration.zero;
-  late final String _streamType;
-
   Tracks _tracks = const Tracks();
   Track _selectedTrack = const Track();
 
@@ -63,7 +61,6 @@ class _MoviePlayerScreenState extends State<MoviePlayerScreen> {
   void initState() {
     super.initState();
     MediaKit.ensureInitialized();
-    _streamType = _getStreamType(widget.streamUrl);
     _configurePlayer();
     _listen();
     _showControlsAndResetTimer();
@@ -71,45 +68,39 @@ class _MoviePlayerScreenState extends State<MoviePlayerScreen> {
     _open();
   }
 
-  String _getStreamType(String url) {
-    final lower = url.toLowerCase().split('?').first;
-    if (lower.endsWith('.m3u8')) return 'm3u8';
-    if (lower.endsWith('.mp4')) return 'mp4';
-    if (lower.endsWith('.mkv')) return 'mkv';
-    if (lower.endsWith('.ts')) return 'ts';
-    if (lower.endsWith('.avi')) return 'avi';
-    return 'unknown';
-  }
-
   void _configurePlayer() {
     if (player.platform is NativePlayer) {
       final native = player.platform as NativePlayer;
+
+      // Fast network buffering
       native.setProperty('cache', 'yes');
+      native.setProperty('cache-secs', '30');
       native.setProperty('cache-pause', 'no');
       native.setProperty('cache-pause-initial', 'no');
-      native.setProperty('network-timeout', '15');
       native.setProperty('demuxer-max-bytes', '50MiB');
       native.setProperty('demuxer-max-back-bytes', '10MiB');
+      native.setProperty('demuxer-readahead-secs', '20');
+      native.setProperty('network-timeout', '15');
+      native.setProperty('stream-buffer-size', '1m');
 
-      if (_streamType == 'm3u8') {
-        native.setProperty('hls-bitrate', 'max');
-        native.setProperty('demuxer-readahead-secs', '10');
-        native.setProperty('cache-secs', '30');
-        native.setProperty('hr-seek', 'yes');
-        native.setProperty('hr-seek-framedrop', 'yes');
-      } else if (_streamType == 'mkv' || _streamType == 'avi') {
-        native.setProperty('demuxer-readahead-secs', '30');
-        native.setProperty('cache-secs', '60');
-        native.setProperty('hr-seek', 'yes');
-        native.setProperty('hr-seek-framedrop', 'yes');
-        native.setProperty('index-mode', 'default');
-        native.setProperty('stream-buffer-size', '1m');
-      } else if (_streamType == 'mp4' || _streamType == 'ts') {
-        native.setProperty('demuxer-readahead-secs', '15');
-        native.setProperty('cache-secs', '30');
-        native.setProperty('hr-seek', 'yes');
-        native.setProperty('hr-seek-framedrop', 'yes');
-      }
+      // Fast seeking — key fix
+      native.setProperty('hr-seek', 'yes');
+      native.setProperty('hr-seek-framedrop', 'yes');
+      native.setProperty('demuxer-seekable-cache', 'yes');
+
+      // Fast file analysis — skips reading entire MKV index
+      native.setProperty(
+        'demuxer-lavf-o',
+        'fflags=+fastseek,analyzeduration=0,probesize=1000000',
+      );
+
+      // Hardware decoding
+      native.setProperty('hwdec', 'auto-safe');
+      native.setProperty('hwdec-codecs', 'all');
+
+      // Reduce stutter
+      native.setProperty('video-sync', 'display-resample');
+      native.setProperty('interpolation', 'no');
     }
   }
 
@@ -216,61 +207,11 @@ class _MoviePlayerScreenState extends State<MoviePlayerScreen> {
   Future<void> _seekSmart(Duration target) async {
     if (_isSeeking) return;
     setState(() => _isSeeking = true);
-
     try {
-      final streamType = _getStreamType(widget.streamUrl);
-
-      if (streamType == 'mkv' || streamType == 'avi') {
-        // For MKV/AVI: reopen then seek after first frame appears
-        await player.open(
-          Media(widget.streamUrl, httpHeaders: {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
-            'Connection': 'keep-alive',
-          }),
-          play: true,
-        );
-
-        // Wait for video to actually be ready using stream events
-        final readyCompleter = Completer<void>();
-        StreamSubscription? sub;
-        sub = player.stream.videoParams.listen((p) {
-          if (p.w != null && p.w! > 0 && !readyCompleter.isCompleted) {
-            readyCompleter.complete();
-            sub?.cancel();
-          }
-        });
-        // Fallback: position starts moving
-        StreamSubscription? posSub;
-        posSub = player.stream.position.listen((pos) {
-          if (pos > const Duration(milliseconds: 200) &&
-              !readyCompleter.isCompleted) {
-            readyCompleter.complete();
-            posSub?.cancel();
-            sub?.cancel();
-          }
-        });
-
-        await readyCompleter.future.timeout(
-          const Duration(seconds: 12),
-          onTimeout: () {
-            sub?.cancel();
-            posSub?.cancel();
-          },
-        );
-
-        // Now seek — video is ready
-        await player.seek(target);
-        await Future<void>.delayed(const Duration(milliseconds: 300));
-        if (!player.state.playing) await player.play();
-      } else {
-        // For mp4, m3u8, ts: simple pause → seek → play
-        await player.pause();
-        await player.seek(target);
-        await Future<void>.delayed(const Duration(milliseconds: 200));
-        await player.play();
-      }
+      await player.seek(target);
+      if (!player.state.playing) await player.play();
     } catch (e) {
-      debugPrint('[MoviePlayer] seekSmart error: $e');
+      debugPrint('[MoviePlayer] seek error: $e');
     } finally {
       if (mounted) setState(() => _isSeeking = false);
     }
