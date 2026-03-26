@@ -2,10 +2,6 @@ import 'package:flutter/material.dart';
 
 import '../../../data/datasources/remote/xtream_api.dart';
 import '../../../data/models/movie_category.dart';
-import '../../../data/models/movie_item.dart';
-import '../../../data/models/movie_watch_progress.dart';
-import '../../../data/services/movie_progress_service.dart';
-import 'movie_detail_screen.dart';
 
 class MoviesScreen extends StatefulWidget {
   final XtreamApi xtreamApi;
@@ -17,242 +13,125 @@ class MoviesScreen extends StatefulWidget {
 }
 
 class _MoviesScreenState extends State<MoviesScreen> {
-  static const String _allKey = 'all';
-  static const String _continueKey = 'continue';
+  late Future<List<MovieCategory>> _futureCategories;
+  final TextEditingController _searchController = TextEditingController();
+  String _searchQuery = '';
 
-  final Map<int, List<MovieItem>> _moviesByCategory = <int, List<MovieItem>>{};
-  final Map<int, MovieWatchProgress> _progressMap = <int, MovieWatchProgress>{};
-
-  bool _loading = true;
-  String _selectedKey = _allKey;
-  List<MovieCategory> _categories = <MovieCategory>[];
-  List<MovieItem> _allMovies = <MovieItem>[];
-  List<MovieWatchProgress> _continueWatching = <MovieWatchProgress>[];
+  static const List<MovieCategory> _fixedCategories = <MovieCategory>[
+    MovieCategory(id: -1, name: 'All'),
+    MovieCategory(id: -2, name: 'Continue Watching'),
+  ];
 
   @override
   void initState() {
     super.initState();
-    _load();
+    _futureCategories = _fetchCategories();
   }
 
-  Future<void> _load() async {
-    setState(() => _loading = true);
-
-    final categoriesRaw = await widget.xtreamApi.getVodCategories();
-    final allRaw = await widget.xtreamApi.getVodStreams();
-    final progressMap = await MovieProgressService.loadProgressMap();
-    final continueWatching = await MovieProgressService.getContinueWatching();
-
-    if (!mounted) return;
-
-    setState(() {
-      _categories = categoriesRaw.map((e) => MovieCategory.fromJson(e)).toList();
-      _allMovies = allRaw.map((e) => MovieItem.fromJson(e)).toList();
-      _progressMap
-        ..clear()
-        ..addAll(progressMap);
-      _continueWatching = continueWatching;
-      _loading = false;
-    });
+  Future<List<MovieCategory>> _fetchCategories() async {
+    final raw = await widget.xtreamApi.getVodCategories();
+    return raw.map((json) => MovieCategory.fromJson(json)).toList();
   }
 
-  Future<void> _selectCategory(String key) async {
-    if (_selectedKey == key) return;
-
-    setState(() {
-      _selectedKey = key;
-    });
-
-    if (key == _allKey || key == _continueKey) return;
-
-    final categoryId = int.tryParse(key);
-    if (categoryId == null || _moviesByCategory.containsKey(categoryId)) return;
-
-    final raw = await widget.xtreamApi.getVodStreams(categoryId: categoryId);
-    if (!mounted) return;
-
-    setState(() {
-      _moviesByCategory[categoryId] = raw.map((e) => MovieItem.fromJson(e)).toList();
-    });
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
   }
 
-  List<MovieItem> _selectedMovies() {
-    if (_selectedKey == _allKey) return _allMovies;
-    if (_selectedKey == _continueKey) {
-      return _continueWatching
-          .map((e) => MovieItem(
-                streamId: e.streamId,
-                title: e.title,
-                posterUrl: e.poster,
-                description: '',
-                genre: '',
-                rating: '',
-                year: '',
-                containerExtension: 'mp4',
-              ))
-          .toList();
+  List<MovieCategory> _visibleCategories(List<MovieCategory> apiCategories) {
+    if (_searchQuery.isEmpty) {
+      return <MovieCategory>[..._fixedCategories, ...apiCategories];
     }
 
-    final categoryId = int.tryParse(_selectedKey);
-    if (categoryId == null) return <MovieItem>[];
-    return _moviesByCategory[categoryId] ?? <MovieItem>[];
-  }
+    final lowerQuery = _searchQuery.toLowerCase();
+    final filteredApiCategories = apiCategories
+        .where((category) => category.name.toLowerCase().contains(lowerQuery))
+        .toList();
 
-  Future<void> _openMovie(MovieItem movie) async {
-    await Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => MovieDetailScreen(
-          xtreamApi: widget.xtreamApi,
-          movie: movie,
-        ),
-      ),
-    );
-
-    await _load();
+    return <MovieCategory>[
+      ..._fixedCategories,
+      ...filteredApiCategories,
+    ];
   }
 
   @override
   Widget build(BuildContext context) {
-    final movies = _selectedMovies();
-
     return Scaffold(
       backgroundColor: const Color(0xFF1E1E1E),
       appBar: AppBar(
         title: const Text('Movies'),
         backgroundColor: const Color(0xFF0F0F1A),
+        elevation: 0,
       ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : Column(
-              children: [
-                SizedBox(
-                  height: 56,
-                  child: ListView(
-                    scrollDirection: Axis.horizontal,
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                    children: [
-                      _buildChip(label: 'All', keyValue: _allKey),
-                      ..._categories.map(
-                        (category) => _buildChip(
-                          label: category.name,
-                          keyValue: category.id.toString(),
-                        ),
-                      ),
-                      _buildChip(label: 'Continue Watching', keyValue: _continueKey),
-                    ],
-                  ),
-                ),
-                Expanded(
-                  child: movies.isEmpty
-                      ? const Center(
-                          child: Text(
-                            'No movies found',
-                            style: TextStyle(color: Colors.white54),
-                          ),
-                        )
-                      : GridView.builder(
-                          padding: const EdgeInsets.all(12),
-                          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                            crossAxisCount: 5,
-                            crossAxisSpacing: 12,
-                            mainAxisSpacing: 12,
-                            childAspectRatio: 0.6,
-                          ),
-                          itemCount: movies.length,
-                          itemBuilder: (context, index) {
-                            final movie = movies[index];
-                            final progress = _progressMap[movie.streamId];
-                            return _MovieCard(
-                              movie: movie,
-                              progress: progress,
-                              onTap: () => _openMovie(movie),
-                            );
-                          },
-                        ),
-                ),
-              ],
-            ),
-    );
-  }
+      body: FutureBuilder<List<MovieCategory>>(
+        future: _futureCategories,
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
+          }
 
-  Widget _buildChip({required String label, required String keyValue}) {
-    return Padding(
-      padding: const EdgeInsets.only(right: 8),
-      child: ChoiceChip(
-        label: Text(label),
-        selected: _selectedKey == keyValue,
-        onSelected: (_) => _selectCategory(keyValue),
-        selectedColor: const Color(0xFF0072ff),
-        labelStyle: TextStyle(
-          color: _selectedKey == keyValue ? Colors.white : Colors.white70,
-        ),
-      ),
-    );
-  }
-}
+          if (snapshot.hasError) {
+            return Center(child: Text('Error: ${snapshot.error}'));
+          }
 
-class _MovieCard extends StatelessWidget {
-  final MovieItem movie;
-  final MovieWatchProgress? progress;
-  final VoidCallback onTap;
+          final apiCategories = snapshot.data ?? <MovieCategory>[];
+          final visibleCategories = _visibleCategories(apiCategories);
 
-  const _MovieCard({
-    required this.movie,
-    required this.progress,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(12),
-      child: Container(
-        decoration: BoxDecoration(
-          color: const Color(0xFF0F0F1A),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: Colors.white10),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Expanded(
-              child: ClipRRect(
-                borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
-                child: Image.network(
-                  movie.posterUrl,
-                  fit: BoxFit.cover,
-                  errorBuilder: (_, __, ___) => Container(
-                    color: Colors.white10,
-                    child: const Icon(Icons.movie, color: Colors.white30, size: 38),
-                  ),
-                ),
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.all(8),
-              child: Text(
-                movie.title,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600),
-              ),
-            ),
-            if (progress != null)
+          return Column(
+            children: [
               Padding(
-                padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
-                child: LinearProgressIndicator(
-                  value: progress!.progress,
-                  minHeight: 4,
-                  backgroundColor: Colors.white12,
-                  valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF00c6ff)),
+                padding: const EdgeInsets.all(12),
+                child: TextField(
+                  controller: _searchController,
+                  style: const TextStyle(color: Colors.white),
+                  decoration: InputDecoration(
+                    hintText: 'Search categories...',
+                    hintStyle: const TextStyle(color: Colors.white38),
+                    prefixIcon: const Icon(Icons.search, color: Colors.white38),
+                    suffixIcon: _searchQuery.isNotEmpty
+                        ? IconButton(
+                            icon: const Icon(Icons.clear, color: Colors.white38),
+                            onPressed: () {
+                              _searchController.clear();
+                              setState(() => _searchQuery = '');
+                            },
+                          )
+                        : null,
+                    filled: true,
+                    fillColor: const Color(0xFF0F0F1A),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide.none,
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: const BorderSide(color: Colors.blue, width: 2),
+                    ),
+                  ),
+                  onChanged: (value) => setState(() => _searchQuery = value),
                 ),
-              )
-            else
-              const SizedBox(height: 12),
-          ],
-        ),
+              ),
+              Expanded(
+                child: ListView.separated(
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  separatorBuilder: (_, __) => const Divider(color: Colors.white12),
+                  itemCount: visibleCategories.length,
+                  itemBuilder: (context, index) {
+                    final category = visibleCategories[index];
+                    return ListTile(
+                      title: Text(
+                        category.name,
+                        style: const TextStyle(color: Colors.white),
+                      ),
+                      onTap: () => debugPrint('Movie category tapped: ${category.name}'),
+                    );
+                  },
+                ),
+              ),
+            ],
+          );
+        },
       ),
     );
   }
