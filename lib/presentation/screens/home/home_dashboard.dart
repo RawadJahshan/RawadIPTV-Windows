@@ -113,8 +113,8 @@ class HomeDashboard extends StatelessWidget {
                           buildTile(
                             label: 'MOVIES',
                             icon: Icons.movie,
-                            startColor: const Color(0xFFf7971e),
-                            endColor: const Color(0xFFffd200),
+                            startColor: const Color(0xFF00c6ff),
+                            endColor: const Color(0xFF0072ff),
                             onTap: () {
                               Navigator.push(
                                 context,
