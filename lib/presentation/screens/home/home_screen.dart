@@ -161,7 +161,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           const Divider(color: Colors.white54),
           const SizedBox(height: 16),
 
-          // TODO: Replace this with your live TV channel list widget or API content
           const Center(
             child: Text(
               'Live TV Channel List will appear here',
