@@ -69,8 +69,11 @@ class _FullscreenPlayerScreenState extends State<FullscreenPlayerScreen> {
   int _seekToken = 0;
   bool _isStoppingForClose = false;
   bool _didHandleClose = false;
+  String? _closeHandledSource;
   bool _isOpening = true;
   String? _openError;
+  int _openCycle = 0;
+  bool _didLogWidgetAttachmentForCycle = false;
 
   @override
   void initState() {
@@ -82,6 +85,8 @@ class _FullscreenPlayerScreenState extends State<FullscreenPlayerScreen> {
   }
 
   Future<void> _open() async {
+    _openCycle++;
+    _didLogWidgetAttachmentForCycle = false;
     PerformanceLogger.log(
       'play_button_to_open_start',
       widget.args.triggerElapsed,
@@ -106,6 +111,15 @@ class _FullscreenPlayerScreenState extends State<FullscreenPlayerScreen> {
         setState(() {
           _isOpening = false;
           _openError = null;
+        });
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted || _didLogWidgetAttachmentForCycle) return;
+          _didLogWidgetAttachmentForCycle = true;
+          final renderObject = context.findRenderObject();
+          debugPrint(
+            '[FullscreenPlayerScreen] widget attachment check '
+            '(cycle=$_openCycle): mounted=$mounted attached=${renderObject?.attached ?? false}',
+          );
         });
       }
     } catch (error) {
@@ -136,6 +150,10 @@ class _FullscreenPlayerScreenState extends State<FullscreenPlayerScreen> {
     });
     _videoParamsSub = _playerService.player.stream.videoParams.listen((event) {
       if (event.w != null && event.w! > 0) {
+        debugPrint(
+          '[FullscreenPlayerScreen] first frame event received '
+          '(cycle=$_openCycle, width=${event.w}, height=${event.h})',
+        );
         PerformanceLogger.log(
           'player_open_start_to_first_frame',
           _openSw.elapsed,
@@ -186,8 +204,12 @@ class _FullscreenPlayerScreenState extends State<FullscreenPlayerScreen> {
 
   @override
   void dispose() {
+    debugPrint(
+      '[FullscreenPlayerScreen] dispose triggered '
+      '(didHandleClose=$_didHandleClose source=${_closeHandledSource ?? 'none'})',
+    );
     if (!_didHandleClose) {
-      unawaited(_stopPlaybackForClose(markClosed: false));
+      unawaited(_stopPlaybackForClose(source: 'dispose_fallback', markClosed: false));
     }
     _hideTimer?.cancel();
     _tracksSub?.cancel();
@@ -203,7 +225,8 @@ class _FullscreenPlayerScreenState extends State<FullscreenPlayerScreen> {
     final player = _playerService.player;
     return WillPopScope(
       onWillPop: () async {
-        await _stopPlaybackForClose();
+        debugPrint('[FullscreenPlayerScreen] route close triggered source=will_pop_scope');
+        await _stopPlaybackForClose(source: 'will_pop_scope');
         return true;
       },
       child: Scaffold(
@@ -276,11 +299,9 @@ class _FullscreenPlayerScreenState extends State<FullscreenPlayerScreen> {
                               title: Text(widget.args.title, style: const TextStyle(color: Colors.white)),
                               trailing: IconButton(
                                 icon: const Icon(Icons.close, color: Colors.white),
-                                onPressed: () async {
-                                  await _stopPlaybackForClose();
-                                  if (mounted) {
-                                    await Navigator.of(context).maybePop();
-                                  }
+                                onPressed: () {
+                                  debugPrint('[FullscreenPlayerScreen] route close triggered source=close_button');
+                                  Navigator.of(context).maybePop();
                                 },
                               ),
                             ),
@@ -360,9 +381,21 @@ class _FullscreenPlayerScreenState extends State<FullscreenPlayerScreen> {
     );
   }
 
-  Future<void> _stopPlaybackForClose({bool markClosed = true}) async {
+  Future<void> _stopPlaybackForClose({
+    required String source,
+    bool markClosed = true,
+  }) async {
+    if (_didHandleClose) {
+      debugPrint(
+        '[FullscreenPlayerScreen] duplicate close suppressed '
+        '(incoming=$source alreadyHandledBy=${_closeHandledSource ?? 'unknown'})',
+      );
+      return;
+    }
     if (_isStoppingForClose) return;
     _isStoppingForClose = true;
+    _closeHandledSource = source;
+    debugPrint('[FullscreenPlayerScreen] close handler started (source=$source markClosed=$markClosed)');
     try {
       if (markClosed) _didHandleClose = true;
       await _playerService.stopAndResetForClose();
