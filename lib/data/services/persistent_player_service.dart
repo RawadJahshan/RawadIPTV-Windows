@@ -33,6 +33,7 @@ class PersistentPlayerService {
   PlayerLifecycleState _state = PlayerLifecycleState.idle;
   Future<void> _lifecycleOp = Future<void>.value();
   int _operationSeq = 0;
+  int _stopGeneration = 0;
 
   Future<T> _runExclusive<T>({
     required String operationName,
@@ -71,27 +72,20 @@ class PersistentPlayerService {
         final operationId = ++_operationSeq;
         debugPrint('[PersistentPlayerService] [op:$operationId] next media open requested: $requestedUrl');
 
-        final wasPlayingBefore = _state == PlayerLifecycleState.playing;
         _state = PlayerLifecycleState.opening;
         debugPrint('[PersistentPlayerService] [op:$operationId] next media open started: $requestedUrl');
 
         try {
-          final sameSourceAsCurrent = wasPlayingBefore && _lastOpenedUrl == requestedUrl;
-          if (!sameSourceAsCurrent) {
-            await player.open(media, play: true).timeout(
-              const Duration(seconds: 20),
-              onTimeout: () {
-                debugPrint('[PersistentPlayerService] [op:$operationId] player.open timeout for $requestedUrl');
-                throw TimeoutException('Timed out while opening media');
-              },
-            );
-          } else {
-            await player.play();
-            debugPrint('[PersistentPlayerService] [op:$operationId] skipped open; source unchanged');
-          }
+          await player.open(media, play: true).timeout(
+            const Duration(seconds: 20),
+            onTimeout: () {
+              debugPrint('[PersistentPlayerService] [op:$operationId] player.open timeout for $requestedUrl');
+              throw TimeoutException('Timed out while opening media');
+            },
+          );
 
           if (startAt != null && startAt > Duration.zero) {
-            await player.seek(startAt);
+            await _seekWithRecovery(startAt, operationId: operationId, sourceUrl: requestedUrl);
           }
 
           _lastOpenedUrl = requestedUrl;
@@ -111,8 +105,15 @@ class PersistentPlayerService {
       operationName: 'close',
       operation: () async {
         final operationId = ++_operationSeq;
+        final stopGeneration = ++_stopGeneration;
         debugPrint('[PersistentPlayerService] [op:$operationId] player close requested');
         _state = PlayerLifecycleState.stopping;
+
+        try {
+          await player.pause();
+        } catch (error) {
+          debugPrint('[PersistentPlayerService] [op:$operationId] player pause before stop failed: $error');
+        }
 
         debugPrint('[PersistentPlayerService] [op:$operationId] player stop started');
         await player.stop().timeout(
@@ -122,6 +123,13 @@ class PersistentPlayerService {
           },
         );
         debugPrint('[PersistentPlayerService] [op:$operationId] player stop completed');
+
+        // If stop races with a new open queued right after close, avoid stale stop completion
+        // overriding the freshly opened session identity.
+        if (stopGeneration != _stopGeneration) {
+          debugPrint('[PersistentPlayerService] [op:$operationId] stale stop completion ignored');
+          return;
+        }
 
         _lastOpenedUrl = null;
         _state = PlayerLifecycleState.idle;
@@ -133,5 +141,29 @@ class PersistentPlayerService {
   Future<void> clearSessionCache() async {
     _lastOpenedUrl = null;
     await stopAndResetForClose();
+  }
+
+  Future<void> _seekWithRecovery(
+    Duration target, {
+    required int operationId,
+    required String sourceUrl,
+  }) async {
+    const toleranceMs = 1500;
+    const maxAttempts = 3;
+
+    for (var attempt = 1; attempt <= maxAttempts; attempt++) {
+      await player.seek(target);
+      await Future<void>.delayed(const Duration(milliseconds: 350));
+      final current = player.state.position;
+      final deltaMs = (current - target).inMilliseconds.abs();
+      if (deltaMs <= toleranceMs || current >= target) {
+        debugPrint('[PersistentPlayerService] [op:$operationId] startAt seek converged on attempt $attempt');
+        return;
+      }
+      debugPrint(
+        '[PersistentPlayerService] [op:$operationId] startAt seek drift detected '
+        '(attempt $attempt/$maxAttempts, target=$target current=$current) for $sourceUrl',
+      );
+    }
   }
 }
