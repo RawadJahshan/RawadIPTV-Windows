@@ -2,14 +2,9 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../live_tv/live_tv_categories_screen.dart';
-import '../../../data/datasources/remote/xtream_api.dart'; // add this import at top
+import '../../../data/datasources/remote/xtream_api.dart';
 import '../profiles/profiles_screen.dart';
-// Add these imports at top
-import '../movies/movies_categories_screen.dart';
-import '../series/series_categories_screen.dart';
 import '../settings/settings_screen.dart';
-
-
 
 class HomeDashboard extends StatelessWidget {
   final String username;
@@ -74,7 +69,7 @@ class HomeDashboard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF2C2C2C), // dark but less pitch black
+      backgroundColor: const Color(0xFF2C2C2C),
       body: SafeArea(
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 36, vertical: 24),
@@ -93,7 +88,6 @@ class HomeDashboard extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(height: 40),
-
                   Expanded(
                     child: Center(
                       child: Wrap(
@@ -102,60 +96,28 @@ class HomeDashboard extends StatelessWidget {
                         runSpacing: 48,
                         children: [
                           buildTile(
-  label: 'LIVE TV',
-  icon: Icons.live_tv,
-  startColor: const Color(0xFF00c6ff),
-  endColor: const Color(0xFF0072ff),
-  onTap: () {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => LiveTvCategoriesScreen(xtreamApi: xtreamApi),
-      ),
-    );
-  },
-),
-buildTile(
-  label: 'FAVORITES',
-  icon: Icons.favorite,
-  startColor: const Color(0xFFe91e63),
-  endColor: const Color(0xFFc2185b),
-  onTap: () {
-    Navigator.pushNamed(context, '/favorites', arguments: xtreamApi);
-  },
-),
+                            label: 'LIVE TV',
+                            icon: Icons.live_tv,
+                            startColor: const Color(0xFF00c6ff),
+                            endColor: const Color(0xFF0072ff),
+                            onTap: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => LiveTvCategoriesScreen(xtreamApi: xtreamApi),
+                                ),
+                              );
+                            },
+                          ),
                           buildTile(
-  label: 'MOVIES',
-  icon: Icons.play_circle_fill,
-  startColor: const Color(0xFFee7752),
-  endColor: const Color(0xFFe73c7e),
-  onTap: () {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => MoviesCategoriesScreen(
-          xtreamApi: xtreamApi,
-        ),
-      ),
-    );
-  },
-),
-buildTile(
-  label: 'SERIES',
-  icon: Icons.video_library_rounded,
-  startColor: const Color(0xFFffa69e),
-  endColor: const Color(0xFF861657),
-  onTap: () {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => SeriesCategoriesScreen(
-          xtreamApi: xtreamApi,
-        ),
-      ),
-    );
-  },
-),
+                            label: 'FAVORITES',
+                            icon: Icons.favorite,
+                            startColor: const Color(0xFFe91e63),
+                            endColor: const Color(0xFFc2185b),
+                            onTap: () {
+                              Navigator.pushNamed(context, '/favorites', arguments: xtreamApi);
+                            },
+                          ),
                           buildTile(
                             label: 'CATCH UP',
                             icon: Icons.history,
@@ -190,44 +152,34 @@ buildTile(
                   ),
                 ],
               ),
-
-              // Positioned time top right
-              // Positioned time top right
-Positioned(
-  top: 24,
-  right: 36,
-  child: _DateTimeWidget(),
-),
-
-// Switch profile button top left
-Positioned(
-  top: 24,
-  left: 0,
-  child: ElevatedButton.icon(
-    onPressed: () {
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(
-          builder: (_) => const ProfilesScreen(),
-        ),
-      );
-    },
-    icon: const Icon(Icons.switch_account, size: 18),
-    label: const Text('Switch Profile'),
-    style: ElevatedButton.styleFrom(
-      backgroundColor: const Color(0xFF1A1A2E),
-      padding: const EdgeInsets.symmetric(
-        horizontal: 16,
-        vertical: 10,
-      ),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(10),
-      ),
-    ),
-  ),
-),
-
-              // Positioned user info bottom right
+              Positioned(
+                top: 24,
+                right: 36,
+                child: _DateTimeWidget(),
+              ),
+              Positioned(
+                top: 24,
+                left: 0,
+                child: ElevatedButton.icon(
+                  onPressed: () {
+                    Navigator.pushReplacement(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => const ProfilesScreen(),
+                      ),
+                    );
+                  },
+                  icon: const Icon(Icons.switch_account, size: 18),
+                  label: const Text('Switch Profile'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF1A1A2E),
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
+                ),
+              ),
               Positioned(
                 bottom: 24,
                 right: 36,
