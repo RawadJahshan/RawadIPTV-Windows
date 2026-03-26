@@ -1,3 +1,5 @@
+import 'safe_parsing.dart';
+
 class Episode {
   final int id;
   final String title;
@@ -24,21 +26,33 @@ class Episode {
     String serverUrl,
     String username,
     String password,
+    String seasonKey,
   ) {
-    final streamId = json['id']?.toString() ?? '0';
-    final ext = json['container_extension']?.toString() ?? 'mp4';
+    final info = SafeParsing.asMap(json['info']);
+    final ext = SafeParsing.asString(
+      json['container_extension'],
+      fallback: 'mp4',
+    );
+    final streamId = SafeParsing.asString(
+      json['id'] ?? json['episode_id'] ?? json['stream_id'],
+      fallback: '0',
+    );
+
     return Episode(
-      id: int.tryParse(streamId) ?? 0,
-      title: json['title']?.toString() ??
-          json['name']?.toString() ??
-          'Episode',
-      streamUrl:
-          '$serverUrl/series/$username/$password/$streamId.$ext',
-      duration: json['info']?['duration']?.toString() ?? '',
-      plot: json['info']?['plot']?.toString() ?? '',
-      episodeNum:
-          int.tryParse(json['episode_num']?.toString() ?? '0') ?? 0,
-      season: int.tryParse(json['season']?.toString() ?? '0') ?? 0,
+      id: SafeParsing.asInt(streamId),
+      title: SafeParsing.asString(
+        json['title'] ?? json['name'],
+        fallback: 'Episode',
+      ),
+      streamUrl: '$serverUrl/series/$username/$password/$streamId.$ext',
+      duration: SafeParsing.asString(info['duration']),
+      plot: SafeParsing.asString(info['plot']),
+      episodeNum: SafeParsing.asInt(
+        json['episode_num'] ?? json['episode_number'],
+      ),
+      season: SafeParsing.asInt(
+        json['season'] ?? json['season_num'] ?? seasonKey,
+      ),
       containerExtension: ext,
     );
   }
