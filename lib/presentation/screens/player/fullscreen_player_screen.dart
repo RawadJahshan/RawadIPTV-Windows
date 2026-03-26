@@ -62,9 +62,11 @@ class _FullscreenPlayerScreenState extends State<FullscreenPlayerScreen> {
   StreamSubscription? _positionSub;
   StreamSubscription? _videoParamsSub;
   StreamSubscription? _seekResumeSub;
+  Timer? _seekReadyTimer;
   double? _sliderDragValueMs;
   bool _seekInFlight = false;
   Duration? _queuedSeekTarget;
+  Duration? _pendingSeekUntilReady;
   Stopwatch? _seekSw;
   int _seekToken = 0;
   bool _isStoppingForClose = false;
@@ -217,6 +219,7 @@ class _FullscreenPlayerScreenState extends State<FullscreenPlayerScreen> {
     _positionSub?.cancel();
     _videoParamsSub?.cancel();
     _seekResumeSub?.cancel();
+    _seekReadyTimer?.cancel();
     super.dispose();
   }
 
@@ -405,19 +408,54 @@ class _FullscreenPlayerScreenState extends State<FullscreenPlayerScreen> {
   }
 
   Future<void> _seekTo(Duration target) async {
+    final state = _playerService.player.state;
+    final beforePosition = state.position;
+    final duration = state.duration;
+    final isDurationKnown = duration > Duration.zero;
+    final wasPlaying = state.playing;
+    final clampedTarget = isDurationKnown && target > duration ? duration : target;
+
+    debugPrint(
+      '[seek] requested title="${widget.args.title}" '
+      'before=$beforePosition target=$clampedTarget '
+      'duration=$duration durationKnown=$isDurationKnown playing=$wasPlaying',
+    );
+
+    if (!isDurationKnown) {
+      _pendingSeekUntilReady = clampedTarget;
+      PerformanceLogger.log(
+        'seek_deferred_media_not_ready',
+        Duration.zero,
+        details: '${widget.args.title} target=${_fmt(clampedTarget)}',
+      );
+      _startSeekReadyWatcher();
+      return;
+    }
+
     if (_seekInFlight) {
-      _queuedSeekTarget = target;
+      _queuedSeekTarget = clampedTarget;
+      debugPrint('[seek] queued while another seek is in-flight target=$clampedTarget');
       return;
     }
     _seekInFlight = true;
     _queuedSeekTarget = null;
-    final currentTarget = target;
+    final currentTarget = clampedTarget;
     final seekToken = ++_seekToken;
     _seekSw = Stopwatch()..start();
-    PerformanceLogger.log('seek_requested', Duration.zero, details: '${widget.args.title} -> ${_fmt(target)}');
+    PerformanceLogger.log(
+      'seek_requested',
+      Duration.zero,
+      details:
+          '${widget.args.title} from=${_fmt(beforePosition)} to=${_fmt(currentTarget)} durationKnown=$isDurationKnown',
+    );
     try {
-      await _playerService.player.seek(target);
+      await _playerService.player.seek(currentTarget);
+      debugPrint('[seek] command sent title="${widget.args.title}" target=$currentTarget');
       PerformanceLogger.log('seek_command_sent', _seekSw!.elapsed, details: widget.args.title);
+      if (wasPlaying && !_playerService.player.state.playing) {
+        await _playerService.player.play();
+        debugPrint('[seek] playback was expected to continue; play() invoked after seek');
+      }
     } catch (error) {
       _seekInFlight = false;
       _seekResumeSub?.cancel();
@@ -431,14 +469,52 @@ class _FullscreenPlayerScreenState extends State<FullscreenPlayerScreen> {
     }
 
     _seekResumeSub?.cancel();
-    _seekResumeSub = _playerService.player.stream.position.listen((position) {
+    Duration? firstRecoveredPosition;
+    bool reachedTargetZone = false;
+    int advancingSamples = 0;
+    Duration? lastObservedPosition;
+
+    _seekResumeSub = _playerService.player.stream.position.listen((position) async {
       if (seekToken != _seekToken) return;
       final deltaMs = (position - currentTarget).inMilliseconds.abs();
-      if (deltaMs > 1500) return;
+      if (!reachedTargetZone) {
+        if (deltaMs > 1500) return;
+        reachedTargetZone = true;
+        firstRecoveredPosition = position;
+        debugPrint(
+          '[seek] first recovery sign title="${widget.args.title}" '
+          'position=$position target=$currentTarget elapsed=${_seekSw?.elapsed.inMilliseconds ?? 0}ms',
+        );
+        PerformanceLogger.log(
+          'seek_recovery_first_sign',
+          _seekSw?.elapsed ?? Duration.zero,
+          details: '${widget.args.title} pos=${_fmt(position)}',
+        );
+        lastObservedPosition = position;
+        return;
+      }
+
+      final previous = lastObservedPosition;
+      lastObservedPosition = position;
+      if (previous == null) return;
+      if (position > previous + const Duration(milliseconds: 150)) {
+        advancingSamples++;
+      }
+
+      if (advancingSamples < 2 || !_playerService.player.state.playing) return;
 
       final elapsed = _seekSw?.elapsed ?? Duration.zero;
+      debugPrint(
+        '[seek] recovered title="${widget.args.title}" '
+        'firstRecovered=$firstRecoveredPosition finalPosition=$position '
+        'advancingSamples=$advancingSamples elapsed=${elapsed.inMilliseconds}ms',
+      );
       PerformanceLogger.log('playback_resumed_after_seek', elapsed, details: widget.args.title);
-      PerformanceLogger.log('total_seek_latency', elapsed, details: widget.args.title);
+      PerformanceLogger.log(
+        'total_seek_latency',
+        elapsed,
+        details: '${widget.args.title} pos=${_fmt(position)} advancing=true',
+      );
       _seekInFlight = false;
       _seekResumeSub?.cancel();
       final queued = _queuedSeekTarget;
@@ -448,11 +524,20 @@ class _FullscreenPlayerScreenState extends State<FullscreenPlayerScreen> {
       }
     });
 
-    Future<void>.delayed(const Duration(seconds: 8), () {
+    Future<void>.delayed(const Duration(seconds: 8), () async {
       if (seekToken != _seekToken) return;
       if (_seekInFlight) {
         final elapsed = _seekSw?.elapsed ?? const Duration(seconds: 8);
+        final currentPosition = _playerService.player.state.position;
+        debugPrint(
+          '[seek] timeout title="${widget.args.title}" '
+          'target=$currentTarget current=$currentPosition elapsed=${elapsed.inMilliseconds}ms',
+        );
         PerformanceLogger.log('seek_resume_timeout', elapsed, details: widget.args.title);
+        if (wasPlaying && !_playerService.player.state.playing) {
+          await _playerService.player.play();
+          debugPrint('[seek] timeout recovery attempted with play()');
+        }
         _seekInFlight = false;
         _seekResumeSub?.cancel();
         final queued = _queuedSeekTarget;
@@ -461,6 +546,29 @@ class _FullscreenPlayerScreenState extends State<FullscreenPlayerScreen> {
           unawaited(_seekTo(queued));
         }
       }
+    });
+  }
+
+  void _startSeekReadyWatcher() {
+    _seekReadyTimer?.cancel();
+    _seekReadyTimer = Timer.periodic(const Duration(milliseconds: 250), (timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      final pending = _pendingSeekUntilReady;
+      if (pending == null || _seekInFlight) return;
+      final duration = _playerService.player.state.duration;
+      if (duration <= Duration.zero) return;
+
+      timer.cancel();
+      _seekReadyTimer = null;
+      _pendingSeekUntilReady = null;
+      debugPrint(
+        '[seek] media became ready, applying deferred seek '
+        'target=$pending duration=$duration',
+      );
+      unawaited(_seekTo(pending));
     });
   }
 
