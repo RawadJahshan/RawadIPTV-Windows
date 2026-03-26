@@ -1,10 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../../data/datasources/remote/xtream_api.dart';
 import '../../../data/models/movie_item.dart';
-import '../../../data/models/movie_watch_progress.dart';
-import '../../../data/services/movie_progress_service.dart';
-import 'movie_player_screen.dart';
 
 class MovieDetailScreen extends StatefulWidget {
   final XtreamApi xtreamApi;
@@ -21,134 +19,338 @@ class MovieDetailScreen extends StatefulWidget {
 }
 
 class _MovieDetailScreenState extends State<MovieDetailScreen> {
-  MovieWatchProgress? _progress;
   bool _loading = true;
-  String _description = '';
+  bool _isPlotExpanded = false;
+
+  late String _title;
+  late String _posterUrl;
+  String _plot = '';
   String _genre = '';
+  String _director = '';
+  String _cast = '';
+  String _releaseDate = '';
   String _rating = '';
-  String _year = '';
+  int? _durationMinutes;
+  String _trailerUrl = '';
 
   @override
   void initState() {
     super.initState();
+    _title = widget.movie.title;
+    _posterUrl = widget.movie.posterUrl;
+    _plot = widget.movie.description;
+    _genre = widget.movie.genre;
+    _rating = widget.movie.rating;
     _load();
   }
 
   Future<void> _load() async {
-    final progress = await MovieProgressService.getProgress(widget.movie.streamId);
-    final vodInfo = await widget.xtreamApi.getVodInfo(widget.movie.streamId);
-    final info = vodInfo['info'];
+    try {
+      final vodInfo = await widget.xtreamApi.getVodInfo(widget.movie.streamId);
+      final info = vodInfo['info'];
+      if (info is Map) {
+        _plot = _pick(info, ['plot', 'description'], fallback: _plot);
+        _genre = _pick(info, ['genre'], fallback: _genre);
+        _director = _pick(info, ['director']);
+        _cast = _pick(info, ['cast']);
+        _releaseDate = _pick(info, ['releaseDate', 'release_date', 'releasedate']);
+        _rating = _pick(info, ['vote_average', 'rating'], fallback: _rating);
+        _trailerUrl = _pick(info, ['trailer_url', 'youtube_trailer']);
+
+        final durationSecs = _asInt(info['duration_secs']);
+        final durationMins = _asInt(info['duration']);
+        if (durationSecs != null && durationSecs > 0) {
+          _durationMinutes = (durationSecs / 60).round();
+        } else if (durationMins != null && durationMins > 0) {
+          _durationMinutes = durationMins;
+        }
+
+        final fetchedTitle = _pick(info, ['name', 'title']);
+        if (fetchedTitle.isNotEmpty) {
+          _title = fetchedTitle;
+        }
+
+        final fetchedPoster = _pick(info, ['stream_icon', 'movie_image']);
+        if (fetchedPoster.isNotEmpty) {
+          _posterUrl = fetchedPoster;
+        }
+      }
+    } catch (_) {
+      // Keep fallback movie values when details endpoint has sparse data.
+    }
 
     if (!mounted) return;
-
     setState(() {
-      _progress = progress;
-      _description = info is Map
-          ? (info['plot']?.toString() ?? info['description']?.toString() ?? widget.movie.description)
-          : widget.movie.description;
-      _genre = info is Map ? (info['genre']?.toString() ?? widget.movie.genre) : widget.movie.genre;
-      _rating = info is Map ? (info['rating']?.toString() ?? widget.movie.rating) : widget.movie.rating;
-      _year = info is Map ? (info['releasedate']?.toString() ?? info['year']?.toString() ?? widget.movie.year) : widget.movie.year;
       _loading = false;
     });
   }
 
-  String _formatResume(Duration value) {
-    final minutes = value.inMinutes;
-    final seconds = value.inSeconds % 60;
-    return '$minutes:${seconds.toString().padLeft(2, '0')}';
+  String _pick(Map<dynamic, dynamic> map, List<String> keys, {String fallback = ''}) {
+    for (final key in keys) {
+      final value = map[key];
+      if (value != null) {
+        final normalized = value.toString().trim();
+        if (normalized.isNotEmpty) {
+          return normalized;
+        }
+      }
+    }
+    return fallback;
   }
 
-  Future<void> _openPlayer({Duration? startAt}) async {
-    final streamUrl = widget.movie.streamUrl(
-      widget.xtreamApi.serverUrl,
-      widget.xtreamApi.username,
-      widget.xtreamApi.password,
-    );
+  int? _asInt(dynamic value) {
+    if (value == null) return null;
+    return int.tryParse(value.toString());
+  }
 
-    await Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => MoviePlayerScreen(
-          streamId: widget.movie.streamId,
-          title: widget.movie.title,
-          poster: widget.movie.posterUrl,
-          streamUrl: streamUrl,
-          startAt: startAt,
-        ),
-      ),
-    );
+  double get _ratingValue => double.tryParse(_rating) ?? 0;
 
-    final updated = await MovieProgressService.getProgress(widget.movie.streamId);
-    if (mounted) {
-      setState(() {
-        _progress = updated;
-      });
+  List<String> get _castMembers => _cast
+      .split(RegExp(r'[,/|]'))
+      .map((name) => name.trim())
+      .where((name) => name.isNotEmpty)
+      .toList();
+
+  Future<void> _openTrailer() async {
+    if (_trailerUrl.trim().isEmpty) {
+      return;
     }
+
+    final raw = _trailerUrl.trim();
+    final normalized = raw.startsWith('http://') || raw.startsWith('https://') ? raw : 'https://www.youtube.com/watch?v=$raw';
+
+    final uri = Uri.tryParse(normalized);
+    if (uri == null) {
+      return;
+    }
+
+    await launchUrl(uri, mode: LaunchMode.externalApplication);
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF1E1E1E),
+      backgroundColor: const Color(0xFF121212),
       appBar: AppBar(
-        title: Text(widget.movie.title),
         backgroundColor: const Color(0xFF0F0F1A),
+        elevation: 0,
+        leading: BackButton(color: Colors.white.withValues(alpha: 0.9)),
       ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : SingleChildScrollView(
-              padding: const EdgeInsets.all(16),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Center(
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(12),
-                      child: Image.network(
-                        widget.movie.posterUrl,
-                        width: 240,
-                        height: 340,
-                        fit: BoxFit.cover,
-                        errorBuilder: (_, __, ___) => Container(
-                          width: 240,
-                          height: 340,
-                          color: Colors.white10,
-                          child: const Icon(Icons.movie, color: Colors.white38, size: 64),
-                        ),
-                      ),
+                  _buildHeroHeader(),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 18, 16, 24),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _buildInfoSection(),
+                        const SizedBox(height: 18),
+                        _buildActionButtons(),
+                      ],
                     ),
                   ),
-                  const SizedBox(height: 16),
-                  Text(widget.movie.title, style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold)),
-                  const SizedBox(height: 12),
-                  Text(_description, style: const TextStyle(color: Colors.white70, height: 1.5)),
-                  const SizedBox(height: 16),
-                  Wrap(
-                    spacing: 16,
-                    runSpacing: 8,
-                    children: [
-                      Text('Genre: ${_genre.isEmpty ? 'N/A' : _genre}', style: const TextStyle(color: Colors.white70)),
-                      Text('Rating: ${_rating.isEmpty ? 'N/A' : _rating}', style: const TextStyle(color: Colors.white70)),
-                      Text('Year: ${_year.isEmpty ? 'N/A' : _year}', style: const TextStyle(color: Colors.white70)),
-                    ],
-                  ),
-                  const SizedBox(height: 24),
-                  if (_progress != null && _progress!.positionMs > 0)
-                    ElevatedButton.icon(
-                      onPressed: () => _openPlayer(startAt: Duration(milliseconds: _progress!.positionMs)),
-                      icon: const Icon(Icons.play_arrow),
-                      label: Text('Resume from ${_formatResume(Duration(milliseconds: _progress!.positionMs))}'),
-                    )
-                  else
-                    ElevatedButton.icon(
-                      onPressed: () => _openPlayer(),
-                      icon: const Icon(Icons.play_arrow),
-                      label: const Text('Play'),
-                    ),
                 ],
               ),
             ),
+    );
+  }
+
+  Widget _buildHeroHeader() {
+    return SizedBox(
+      height: 320,
+      width: double.infinity,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          Image.network(
+            _posterUrl,
+            fit: BoxFit.cover,
+            errorBuilder: (_, __, ___) => Container(
+              color: const Color(0xFF171717),
+              child: const Icon(Icons.movie_creation_outlined, color: Colors.white30, size: 64),
+            ),
+          ),
+          DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  Colors.transparent,
+                  Colors.black.withValues(alpha: 0.35),
+                  Colors.black.withValues(alpha: 0.88),
+                ],
+                stops: const [0.38, 0.62, 1],
+              ),
+            ),
+          ),
+          Positioned(
+            left: 16,
+            right: 16,
+            bottom: 18,
+            child: Text(
+              _title,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 30,
+                fontWeight: FontWeight.w800,
+                letterSpacing: 0.2,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildInfoSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Wrap(
+          spacing: 16,
+          runSpacing: 8,
+          children: [
+            _buildMetaRow('Rating', _rating.isEmpty ? 'N/A' : _rating, withStars: true),
+            _buildMetaRow('Release', _releaseDate.isEmpty ? 'N/A' : _releaseDate),
+            _buildMetaRow('Duration', _durationMinutes == null ? 'N/A' : '${_durationMinutes} min'),
+            _buildMetaRow('Genre', _genre.isEmpty ? 'N/A' : _genre),
+          ],
+        ),
+        const SizedBox(height: 16),
+        const Text(
+          'Plot',
+          style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w700),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          _plot.isEmpty ? 'No description available.' : _plot,
+          maxLines: _isPlotExpanded ? null : 4,
+          overflow: _isPlotExpanded ? TextOverflow.visible : TextOverflow.ellipsis,
+          style: const TextStyle(color: Colors.white70, fontSize: 14, height: 1.45),
+        ),
+        if (_plot.length > 210)
+          TextButton(
+            onPressed: () => setState(() => _isPlotExpanded = !_isPlotExpanded),
+            style: TextButton.styleFrom(padding: EdgeInsets.zero, foregroundColor: const Color(0xFF00C6FF)),
+            child: Text(_isPlotExpanded ? 'Read less' : 'Read more'),
+          ),
+        const SizedBox(height: 12),
+        const Text(
+          'Cast',
+          style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w700),
+        ),
+        const SizedBox(height: 8),
+        SizedBox(
+          height: 38,
+          child: _castMembers.isEmpty
+              ? const Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text('N/A', style: TextStyle(color: Colors.white54)),
+                )
+              : ListView.separated(
+                  scrollDirection: Axis.horizontal,
+                  itemBuilder: (context, index) => Chip(
+                    backgroundColor: const Color(0xFF1F2430),
+                    side: BorderSide.none,
+                    label: Text(
+                      _castMembers[index],
+                      style: const TextStyle(color: Colors.white70, fontSize: 12),
+                    ),
+                  ),
+                  separatorBuilder: (_, __) => const SizedBox(width: 8),
+                  itemCount: _castMembers.length,
+                ),
+        ),
+        const SizedBox(height: 14),
+        _buildMetaRow('Director', _director.isEmpty ? 'N/A' : _director),
+      ],
+    );
+  }
+
+  Widget _buildMetaRow(String label, String value, {bool withStars = false}) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          '$label: ',
+          style: const TextStyle(color: Colors.white60, fontSize: 13, fontWeight: FontWeight.w600),
+        ),
+        if (withStars)
+          ...List<Widget>.generate(5, (index) {
+            final filled = index < (_ratingValue / 2).floor();
+            return Icon(
+              Icons.star,
+              size: 14,
+              color: filled ? Colors.amber : Colors.white24,
+            );
+          }),
+        if (withStars) const SizedBox(width: 6),
+        Text(
+          value,
+          style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildActionButtons() {
+    final hasTrailer = _trailerUrl.trim().isNotEmpty;
+
+    return Row(
+      children: [
+        Expanded(
+          child: ElevatedButton.icon(
+            onPressed: null,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF0077B6),
+              disabledBackgroundColor: const Color(0xFF0077B6),
+              foregroundColor: Colors.white,
+              disabledForegroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(vertical: 12),
+            ),
+            icon: const Icon(Icons.play_circle_fill, size: 18),
+            label: const Text('Play Now'),
+          ),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: ElevatedButton.icon(
+            onPressed: null,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF263238),
+              disabledBackgroundColor: const Color(0xFF263238),
+              foregroundColor: Colors.white,
+              disabledForegroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(vertical: 12),
+            ),
+            icon: const Icon(Icons.favorite_border, size: 18),
+            label: const Text('Add to Favorites'),
+          ),
+        ),
+        if (hasTrailer) ...[
+          const SizedBox(width: 8),
+          Expanded(
+            child: ElevatedButton.icon(
+              onPressed: _openTrailer,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF00A86B),
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 12),
+              ),
+              icon: const Icon(Icons.ondemand_video, size: 18),
+              label: const Text('Play Trailer'),
+            ),
+          ),
+        ],
+      ],
     );
   }
 }

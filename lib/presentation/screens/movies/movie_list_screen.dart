@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 
 import '../../../data/datasources/remote/xtream_api.dart';
 import '../../../data/models/movie_item.dart';
+import 'movie_detail_screen.dart';
 
 class MovieListScreen extends StatefulWidget {
   final XtreamApi xtreamApi;
@@ -98,7 +99,16 @@ class _MovieListScreenState extends State<MovieListScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final isWide = MediaQuery.of(context).size.width >= 900;
+    final width = MediaQuery.of(context).size.width;
+    final crossAxisCount = width >= 1400
+        ? 6
+        : width >= 1200
+            ? 5
+            : width >= 900
+                ? 4
+                : width >= 720
+                    ? 4
+                    : 3;
 
     return Scaffold(
       backgroundColor: const Color(0xFF1E1E1E),
@@ -142,14 +152,14 @@ class _MovieListScreenState extends State<MovieListScreen> {
             ),
           ),
           Expanded(
-            child: _buildBody(isWide),
+            child: _buildBody(crossAxisCount),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildBody(bool isWide) {
+  Widget _buildBody(int crossAxisCount) {
     if (_isLoading) {
       return const Center(child: CircularProgressIndicator());
     }
@@ -196,21 +206,35 @@ class _MovieListScreenState extends State<MovieListScreen> {
     return GridView.builder(
       padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
       gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: isWide ? 3 : 2,
-        crossAxisSpacing: 12,
-        mainAxisSpacing: 12,
-        childAspectRatio: 0.65,
+        crossAxisCount: crossAxisCount,
+        crossAxisSpacing: 10,
+        mainAxisSpacing: 10,
+        childAspectRatio: 0.72,
       ),
       itemCount: filteredMovies.length,
-      itemBuilder: (context, index) => _MovieCard(movie: filteredMovies[index]),
+      itemBuilder: (context, index) => _MovieCard(
+        movie: filteredMovies[index],
+        onTap: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => MovieDetailScreen(
+                xtreamApi: widget.xtreamApi,
+                movie: filteredMovies[index],
+              ),
+            ),
+          );
+        },
+      ),
     );
   }
 }
 
 class _MovieCard extends StatefulWidget {
   final MovieItem movie;
+  final VoidCallback onTap;
 
-  const _MovieCard({required this.movie});
+  const _MovieCard({required this.movie, required this.onTap});
 
   @override
   State<_MovieCard> createState() => _MovieCardState();
@@ -221,7 +245,10 @@ class _MovieCardState extends State<_MovieCard> {
 
   @override
   Widget build(BuildContext context) {
-    final enableHover = kIsWeb || defaultTargetPlatform == TargetPlatform.windows || defaultTargetPlatform == TargetPlatform.macOS || defaultTargetPlatform == TargetPlatform.linux;
+    final enableHover = kIsWeb ||
+        defaultTargetPlatform == TargetPlatform.windows ||
+        defaultTargetPlatform == TargetPlatform.macOS ||
+        defaultTargetPlatform == TargetPlatform.linux;
 
     return MouseRegion(
       onEnter: (_) {
@@ -240,10 +267,10 @@ class _MovieCardState extends State<_MovieCard> {
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 180),
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(14),
+            borderRadius: BorderRadius.circular(12),
             border: Border.all(
               color: _isHovering ? const Color(0xFF00C6FF).withValues(alpha: 0.6) : Colors.transparent,
-              width: 1.4,
+              width: 1.2,
             ),
             boxShadow: [
               if (_isHovering)
@@ -255,79 +282,79 @@ class _MovieCardState extends State<_MovieCard> {
             ],
           ),
           child: ClipRRect(
-            borderRadius: BorderRadius.circular(14),
-            child: Stack(
-              fit: StackFit.expand,
-              children: [
-                ColorFiltered(
-                  colorFilter: ColorFilter.mode(
-                    Colors.white.withValues(alpha: _isHovering ? 0.12 : 0),
-                    BlendMode.screen,
-                  ),
-                  child: Image.network(
-                    widget.movie.posterUrl,
-                    fit: BoxFit.cover,
-                    errorBuilder: (_, __, ___) => Container(
-                      color: Colors.white10,
-                      child: const Icon(Icons.movie, color: Colors.white38, size: 40),
-                    ),
-                  ),
-                ),
-                Positioned(
-                  top: 8,
-                  right: 8,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: Colors.black.withValues(alpha: 0.65),
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Icon(Icons.star, color: Colors.amber, size: 12),
-                        const SizedBox(width: 3),
-                        Text(
-                          widget.movie.rating.isEmpty ? '-' : widget.movie.rating,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 11,
-                            fontWeight: FontWeight.w600,
+            borderRadius: BorderRadius.circular(12),
+            child: Material(
+              color: Colors.transparent,
+              child: InkWell(
+                onTap: widget.onTap,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Expanded(
+                      child: Stack(
+                        fit: StackFit.expand,
+                        children: [
+                          ColorFiltered(
+                            colorFilter: ColorFilter.mode(
+                              Colors.white.withValues(alpha: _isHovering ? 0.12 : 0),
+                              BlendMode.screen,
+                            ),
+                            child: Image.network(
+                              widget.movie.posterUrl,
+                              fit: BoxFit.cover,
+                              errorBuilder: (_, __, ___) => Container(
+                                color: Colors.white10,
+                                child: const Icon(Icons.movie, color: Colors.white38, size: 30),
+                              ),
+                            ),
                           ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                Positioned(
-                  left: 0,
-                  right: 0,
-                  bottom: 0,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.topCenter,
-                        end: Alignment.bottomCenter,
-                        colors: [
-                          Colors.transparent,
-                          Colors.black.withValues(alpha: 0.85),
+                          Positioned(
+                            top: 6,
+                            right: 6,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                              decoration: BoxDecoration(
+                                color: Colors.black.withValues(alpha: 0.7),
+                                borderRadius: BorderRadius.circular(9),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Icon(Icons.star, color: Colors.amber, size: 11),
+                                  const SizedBox(width: 2),
+                                  Text(
+                                    widget.movie.rating.isEmpty ? '-' : widget.movie.rating,
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
                         ],
                       ),
                     ),
-                    child: Text(
-                      widget.movie.title,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w600,
-                        fontSize: 13,
+                    Container(
+                      color: const Color(0xFF101420),
+                      padding: const EdgeInsets.fromLTRB(7, 6, 7, 7),
+                      child: Text(
+                        widget.movie.title,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w600,
+                          fontSize: 11,
+                          height: 1.2,
+                        ),
                       ),
                     ),
-                  ),
+                  ],
                 ),
-              ],
+              ),
             ),
           ),
         ),
