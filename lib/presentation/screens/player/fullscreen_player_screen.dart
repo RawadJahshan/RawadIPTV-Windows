@@ -306,7 +306,7 @@ class _FullscreenPlayerScreenState extends State<FullscreenPlayerScreen> {
     if (_isStoppingForClose) return;
     _isStoppingForClose = true;
     try {
-      await _playerService.player.stop();
+      await _playerService.stopAndResetForClose();
     } finally {
       _isStoppingForClose = false;
     }
