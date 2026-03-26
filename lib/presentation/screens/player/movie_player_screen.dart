@@ -71,36 +71,20 @@ class _MoviePlayerScreenState extends State<MoviePlayerScreen> {
   void _configurePlayer() {
     if (player.platform is NativePlayer) {
       final native = player.platform as NativePlayer;
-
-      // Fast network buffering
       native.setProperty('cache', 'yes');
-      native.setProperty('cache-secs', '30');
+      native.setProperty('cache-secs', '10');
       native.setProperty('cache-pause', 'no');
       native.setProperty('cache-pause-initial', 'no');
-      native.setProperty('demuxer-max-bytes', '50MiB');
-      native.setProperty('demuxer-max-back-bytes', '10MiB');
-      native.setProperty('demuxer-readahead-secs', '20');
+      native.setProperty('demuxer-max-bytes', '150MiB');
+      native.setProperty('demuxer-max-back-bytes', '50MiB');
       native.setProperty('network-timeout', '15');
-      native.setProperty('stream-buffer-size', '1m');
-
-      // Fast seeking — key fix
-      native.setProperty('hr-seek', 'yes');
-      native.setProperty('hr-seek-framedrop', 'yes');
-      native.setProperty('demuxer-seekable-cache', 'yes');
-
-      // Fast file analysis — skips reading entire MKV index
-      native.setProperty(
-        'demuxer-lavf-o',
-        'fflags=+fastseek,analyzeduration=0,probesize=1000000',
-      );
-
-      // Hardware decoding
       native.setProperty('hwdec', 'auto-safe');
-      native.setProperty('hwdec-codecs', 'all');
-
-      // Reduce stutter
-      native.setProperty('video-sync', 'display-resample');
-      native.setProperty('interpolation', 'no');
+      native.setProperty('hr-seek', 'yes');
+      native.setProperty('hr-seek-demuxer-offset', '0');
+      native.setProperty('index-mode', 'default');
+      native.setProperty('demuxer-lavf-o-append', 'fflags=+fastseek');
+      native.setProperty('demuxer-lavf-o-append', 'analyzeduration=100000');
+      native.setProperty('demuxer-lavf-o-append', 'probesize=100000');
     }
   }
 
@@ -209,6 +193,7 @@ class _MoviePlayerScreenState extends State<MoviePlayerScreen> {
     setState(() => _isSeeking = true);
     try {
       await player.seek(target);
+      await Future<void>.delayed(const Duration(milliseconds: 100));
       if (!player.state.playing) await player.play();
     } catch (e) {
       debugPrint('[MoviePlayer] seek error: $e');
