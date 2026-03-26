@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../data/datasources/remote/xtream_api.dart';
 import '../../../data/models/movie.dart';
+import '../../../data/models/safe_parsing.dart';
 import '../../../data/services/performance_logger.dart';
 import '../../../data/services/watch_progress_service.dart';
 import '../../../utils/favorites_manager.dart';
@@ -104,7 +105,7 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
   @override
   Widget build(BuildContext context) {
     final infoMovie = (_richInfo?['info'] is Map) ? Map<String, dynamic>.from(_richInfo!['info'] as Map) : <String, dynamic>{};
-    final backdrop = infoMovie['backdrop_path']?.toString();
+    final backdrop = SafeParsing.normalizeBackdropUrl(infoMovie['backdrop_path']);
     final plot = infoMovie['plot']?.toString().isNotEmpty == true ? infoMovie['plot'].toString() : widget.movie.plot;
     final genre = infoMovie['genre']?.toString().isNotEmpty == true ? infoMovie['genre'].toString() : widget.movie.genre;
     final cast = infoMovie['cast']?.toString().isNotEmpty == true ? infoMovie['cast'].toString() : widget.movie.cast;
@@ -114,8 +115,22 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
       body: Stack(
         fit: StackFit.expand,
         children: [
-          if (backdrop != null && backdrop.isNotEmpty) Image.network(backdrop, fit: BoxFit.cover),
+          if (backdrop != null)
+            Image.network(
+              backdrop,
+              fit: BoxFit.cover,
+              errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+            ),
           Container(color: Colors.black.withValues(alpha: 0.75)),
+          SafeArea(
+            child: Align(
+              alignment: Alignment.topLeft,
+              child: Padding(
+                padding: const EdgeInsets.all(20),
+                child: _PremiumBackButton(onPressed: () => Navigator.maybePop(context)),
+              ),
+            ),
+          ),
           SafeArea(
             child: SingleChildScrollView(
               padding: const EdgeInsets.all(24),
@@ -186,5 +201,27 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
     final m = d.inMinutes.remainder(60).toString().padLeft(2, '0');
     final s = d.inSeconds.remainder(60).toString().padLeft(2, '0');
     return '$h:$m:$s';
+  }
+}
+
+class _PremiumBackButton extends StatelessWidget {
+  final VoidCallback onPressed;
+
+  const _PremiumBackButton({required this.onPressed});
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.45),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: Colors.white24),
+      ),
+      child: IconButton(
+        tooltip: 'Back',
+        onPressed: onPressed,
+        icon: const Icon(Icons.arrow_back_rounded),
+      ),
+    );
   }
 }

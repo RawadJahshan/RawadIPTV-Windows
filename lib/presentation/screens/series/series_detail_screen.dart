@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../data/datasources/remote/xtream_api.dart';
 import '../../../data/models/episode.dart';
+import '../../../data/models/safe_parsing.dart';
 import '../../../data/models/series.dart';
 import '../../../data/services/performance_logger.dart';
 import '../../../data/services/watch_progress_service.dart';
@@ -23,6 +24,7 @@ class _SeriesDetailScreenState extends State<SeriesDetailScreen> {
   Map<String, dynamic>? _info;
   Map<String, List<Episode>> _episodesBySeason = {};
   final Map<int, Map<String, dynamic>?> _progressByEpisode = {};
+  String? _selectedSeason;
 
   @override
   void initState() {
@@ -34,38 +36,79 @@ class _SeriesDetailScreenState extends State<SeriesDetailScreen> {
     final sw = Stopwatch()..start();
     _isFavorite = await FavoritesManager.isFavoriteSeries(widget.series.id.toString());
     if (mounted) setState(() {});
+
     final info = await widget.xtreamApi.getSeriesInfo(widget.series.id);
     PerformanceLogger.log('series_metadata_fetch_duration', sw.elapsed, details: widget.series.name);
 
-    final parsed = <String, List<Episode>>{};
-    final rawEpisodes = info['episodes'];
-    if (rawEpisodes is Map) {
-      for (final entry in rawEpisodes.entries) {
-        final season = entry.key.toString();
-        final value = entry.value;
-        if (value is List) {
-          parsed[season] = value
-              .map((e) => Episode.fromJson(
-                    Map<String, dynamic>.from(e as Map),
-                    widget.xtreamApi.serverUrl,
-                    widget.xtreamApi.username,
-                    widget.xtreamApi.password,
-                  ))
-              .toList();
-        }
-      }
-    }
+    final parsed = _parseEpisodesBySeason(info);
+    final seasonOrder = _buildSeasonOrder(info, parsed);
 
     for (final e in parsed.values.expand((x) => x)) {
       _progressByEpisode[e.id] = await WatchProgressService.getEpisodeProgress(e.id);
     }
 
-    if (mounted) {
-      setState(() {
-        _info = info;
-        _episodesBySeason = parsed;
-      });
+    if (!mounted) return;
+    setState(() {
+      _info = info;
+      _episodesBySeason = parsed;
+      _selectedSeason = seasonOrder.isNotEmpty ? seasonOrder.first : null;
+    });
+  }
+
+  Map<String, List<Episode>> _parseEpisodesBySeason(Map<String, dynamic> info) {
+    final output = <String, List<Episode>>{};
+    final rawEpisodes = info['episodes'];
+
+    if (rawEpisodes is Map) {
+      for (final entry in rawEpisodes.entries) {
+        final seasonKey = SafeParsing.asString(entry.key);
+        final episodeItems = SafeParsing.asList(entry.value);
+        final episodes = <Episode>[];
+
+        for (final item in episodeItems) {
+          final rawEpisode = SafeParsing.asMap(item);
+          if (rawEpisode.isEmpty) continue;
+
+          final episode = Episode.fromJson(
+            rawEpisode,
+            widget.xtreamApi.serverUrl,
+            widget.xtreamApi.username,
+            widget.xtreamApi.password,
+            seasonKey,
+          );
+          if (episode.id > 0) episodes.add(episode);
+        }
+
+        if (episodes.isNotEmpty) {
+          output[seasonKey] = episodes;
+        }
+      }
     }
+
+    return output;
+  }
+
+  List<String> _buildSeasonOrder(Map<String, dynamic> info, Map<String, List<Episode>> parsed) {
+    final fromSeasons = <String>[];
+    for (final seasonData in SafeParsing.asList(info['seasons'])) {
+      final season = SafeParsing.asMap(seasonData);
+      if (season.isEmpty) continue;
+      final seasonNumber = SafeParsing.asString(
+        season['season_number'] ?? season['season'] ?? season['name'],
+      );
+      if (seasonNumber.isNotEmpty) fromSeasons.add(seasonNumber);
+    }
+
+    final all = <String>{...fromSeasons, ...parsed.keys};
+    final sortable = all.toList()
+      ..sort((a, b) {
+        final ai = int.tryParse(a);
+        final bi = int.tryParse(b);
+        if (ai != null && bi != null) return ai.compareTo(bi);
+        return a.compareTo(b);
+      });
+
+    return sortable;
   }
 
   Future<void> _playEpisode(Episode episode) async {
@@ -126,14 +169,35 @@ class _SeriesDetailScreenState extends State<SeriesDetailScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final info = (_info?['info'] is Map) ? Map<String, dynamic>.from(_info!['info'] as Map) : <String, dynamic>{};
-    final backdrop = info['backdrop_path']?.toString();
+    final info = SafeParsing.asMap(_info?['info']);
+    final backdrop = SafeParsing.normalizeBackdropUrl(info['backdrop_path']);
+    final seasons = _buildSeasonOrder(_info ?? const <String, dynamic>{}, _episodesBySeason);
+    final effectiveSeason = (_selectedSeason != null && _episodesBySeason.containsKey(_selectedSeason))
+        ? _selectedSeason
+        : (seasons.isNotEmpty ? seasons.first : null);
+    final selectedEpisodes = (effectiveSeason == null) ? const <Episode>[] : (_episodesBySeason[effectiveSeason] ?? const <Episode>[]);
 
     return Scaffold(
       body: Stack(
         children: [
-          if (backdrop != null && backdrop.isNotEmpty) Positioned.fill(child: Image.network(backdrop, fit: BoxFit.cover)),
+          if (backdrop != null)
+            Positioned.fill(
+              child: Image.network(
+                backdrop,
+                fit: BoxFit.cover,
+                errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+              ),
+            ),
           Positioned.fill(child: Container(color: Colors.black.withValues(alpha: 0.78))),
+          SafeArea(
+            child: Align(
+              alignment: Alignment.topLeft,
+              child: Padding(
+                padding: const EdgeInsets.all(20),
+                child: _SeriesBackButton(onPressed: () => Navigator.maybePop(context)),
+              ),
+            ),
+          ),
           SafeArea(
             child: ListView(
               padding: const EdgeInsets.all(24),
@@ -143,7 +207,18 @@ class _SeriesDetailScreenState extends State<SeriesDetailScreen> {
                   children: [
                     ClipRRect(
                       borderRadius: BorderRadius.circular(12),
-                      child: Image.network(widget.series.logoUrl, width: 220, height: 330, fit: BoxFit.cover),
+                      child: Image.network(
+                        widget.series.logoUrl,
+                        width: 220,
+                        height: 330,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) => Container(
+                          width: 220,
+                          height: 330,
+                          color: Colors.white10,
+                          child: const Icon(Icons.movie, size: 48),
+                        ),
+                      ),
                     ),
                     const SizedBox(width: 24),
                     Expanded(
@@ -152,12 +227,12 @@ class _SeriesDetailScreenState extends State<SeriesDetailScreen> {
                         children: [
                           Text(widget.series.name, style: const TextStyle(fontSize: 30, fontWeight: FontWeight.bold)),
                           const SizedBox(height: 12),
-                          Text(info['plot']?.toString().isNotEmpty == true ? info['plot'].toString() : widget.series.plot),
+                          Text(SafeParsing.asString(info['plot'], fallback: widget.series.plot)),
                           const SizedBox(height: 12),
-                          Text('Genre: ${info['genre'] ?? widget.series.genre}'),
-                          Text('Rating: ${info['rating'] ?? widget.series.rating}'),
-                          Text('Cast: ${info['cast'] ?? widget.series.cast}'),
-                          Text('Director: ${info['director'] ?? widget.series.director}'),
+                          Text('Genre: ${SafeParsing.asString(info['genre'], fallback: widget.series.genre)}'),
+                          Text('Rating: ${SafeParsing.asString(info['rating'], fallback: widget.series.rating)}'),
+                          Text('Cast: ${SafeParsing.asString(info['cast'], fallback: widget.series.cast)}'),
+                          Text('Director: ${SafeParsing.asString(info['director'], fallback: widget.series.director)}'),
                           const SizedBox(height: 12),
                           OutlinedButton.icon(
                             onPressed: _toggleFavorite,
@@ -170,40 +245,70 @@ class _SeriesDetailScreenState extends State<SeriesDetailScreen> {
                   ],
                 ),
                 const SizedBox(height: 20),
-                ..._episodesBySeason.entries.map(
-                  (entry) => Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('Season ${entry.key}', style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
-                      const SizedBox(height: 8),
-                      ...entry.value.map((episode) {
-                        final progress = _progressByEpisode[episode.id];
-                        final position = int.tryParse('${progress?['position_ms']}') ?? 0;
-                        final duration = int.tryParse('${progress?['duration_ms']}') ?? 0;
-                        final ratio = duration <= 0 ? 0.0 : (position / duration).clamp(0.0, 1.0);
-                        final completed = (progress?['completed'] as bool?) == true;
-                        return Card(
-                          color: const Color(0xFF202030),
-                          child: ListTile(
-                            title: Text('E${episode.episodeNum} • ${episode.title}'),
-                            subtitle: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                if (episode.duration.isNotEmpty) Text('Duration: ${episode.duration}'),
-                                if (ratio > 0) LinearProgressIndicator(value: ratio),
-                                if (progress != null)
-                                  Text(completed ? 'Completed' : 'Remaining ${_format(Duration(milliseconds: duration - position))}'),
-                              ],
-                            ),
-                            trailing: const Icon(Icons.play_arrow),
-                            onTap: () => _playEpisode(episode),
+                if (seasons.isNotEmpty) ...[
+                  const Text('Seasons', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700)),
+                  const SizedBox(height: 10),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: seasons.map((season) {
+                      final selected = season == effectiveSeason;
+                      return InkWell(
+                        onTap: () => setState(() => _selectedSeason = season),
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 140),
+                          width: 64,
+                          height: 44,
+                          decoration: BoxDecoration(
+                            color: selected ? const Color(0xFF2A3A8A) : const Color(0xFF1E2130),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: selected ? Colors.white70 : Colors.white24),
                           ),
-                        );
-                      }),
-                      const SizedBox(height: 12),
-                    ],
+                          alignment: Alignment.center,
+                          child: Text(
+                            'S$season',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w700,
+                              color: selected ? Colors.white : Colors.white70,
+                            ),
+                          ),
+                        ),
+                      );
+                    }).toList(),
                   ),
-                )
+                  const SizedBox(height: 18),
+                ],
+                if (selectedEpisodes.isEmpty)
+                  const Card(
+                    color: Color(0xFF202030),
+                    child: ListTile(
+                      title: Text('No episodes available for this season.'),
+                    ),
+                  ),
+                ...selectedEpisodes.map((episode) {
+                  final progress = _progressByEpisode[episode.id];
+                  final position = int.tryParse('${progress?['position_ms']}') ?? 0;
+                  final duration = int.tryParse('${progress?['duration_ms']}') ?? 0;
+                  final ratio = duration <= 0 ? 0.0 : (position / duration).clamp(0.0, 1.0);
+                  final completed = (progress?['completed'] as bool?) == true;
+                  return Card(
+                    color: const Color(0xFF202030),
+                    child: ListTile(
+                      title: Text('E${episode.episodeNum} • ${episode.title}'),
+                      subtitle: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          if (episode.duration.isNotEmpty) Text('Duration: ${episode.duration}'),
+                          if (ratio > 0) LinearProgressIndicator(value: ratio),
+                          if (progress != null)
+                            Text(completed ? 'Completed' : 'Remaining ${_format(Duration(milliseconds: duration - position))}'),
+                        ],
+                      ),
+                      trailing: const Icon(Icons.play_arrow),
+                      onTap: () => _playEpisode(episode),
+                    ),
+                  );
+                }),
               ],
             ),
           ),
@@ -217,5 +322,27 @@ class _SeriesDetailScreenState extends State<SeriesDetailScreen> {
     final m = d.inMinutes.remainder(60).toString().padLeft(2, '0');
     final s = d.inSeconds.remainder(60).toString().padLeft(2, '0');
     return '$h:$m:$s';
+  }
+}
+
+class _SeriesBackButton extends StatelessWidget {
+  final VoidCallback onPressed;
+
+  const _SeriesBackButton({required this.onPressed});
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.45),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: Colors.white24),
+      ),
+      child: IconButton(
+        tooltip: 'Back',
+        onPressed: onPressed,
+        icon: const Icon(Icons.arrow_back_rounded),
+      ),
+    );
   }
 }
