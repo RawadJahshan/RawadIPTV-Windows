@@ -36,10 +36,14 @@ class _MoviePlayerScreenState extends State<MoviePlayerScreen> {
   StreamSubscription<Duration>? _durationSub;
   StreamSubscription<bool>? _playingSub;
   StreamSubscription<bool>? _bufferingSub;
+  StreamSubscription<Duration>? _bufferSub;
+  StreamSubscription<String>? _errorSub;
+  StreamSubscription<VideoParams>? _videoParamsSub;
   StreamSubscription<Tracks>? _tracksSub;
   StreamSubscription<Track>? _trackSub;
   Timer? _overlayTimer;
   Timer? _saveTimer;
+  Timer? _initialOpenTimeout;
 
   Duration _position = Duration.zero;
   Duration _duration = Duration.zero;
@@ -47,6 +51,12 @@ class _MoviePlayerScreenState extends State<MoviePlayerScreen> {
   bool _isBuffering = false;
   bool _showControls = true;
   bool _isSeeking = false;
+  bool _showError = false;
+  String _errorMessage = '';
+  Duration _buffered = Duration.zero;
+  double _bufferPercent = 0;
+  late final String _streamType;
+  Completer<void>? _videoReadyCompleter;
 
   Tracks _tracks = const Tracks();
   Track _selectedTrack = const Track();
@@ -57,6 +67,7 @@ class _MoviePlayerScreenState extends State<MoviePlayerScreen> {
   void initState() {
     super.initState();
     MediaKit.ensureInitialized();
+    _streamType = getStreamType(widget.streamUrl);
     _configurePlayer();
     _listen();
     _showControlsAndResetTimer();
@@ -64,37 +75,86 @@ class _MoviePlayerScreenState extends State<MoviePlayerScreen> {
     _open();
   }
 
+  String getStreamType(String url) {
+    final lower = url.toLowerCase().split('?').first;
+    if (lower.endsWith('.m3u8')) return 'm3u8';
+    if (lower.endsWith('.mp4')) return 'mp4';
+    if (lower.endsWith('.mkv')) return 'mkv';
+    if (lower.endsWith('.ts')) return 'ts';
+    if (lower.endsWith('.avi')) return 'avi';
+    return 'unknown';
+  }
+
   void _configurePlayer() {
     if (player.platform is NativePlayer) {
       final native = player.platform as NativePlayer;
       native.setProperty('cache', 'yes');
-      native.setProperty('cache-secs', '30');
-      native.setProperty('demuxer-max-bytes', '50MiB');
-      native.setProperty('demuxer-readahead-secs', '20');
       native.setProperty('cache-pause', 'no');
       native.setProperty('cache-pause-initial', 'no');
-      native.setProperty('network-timeout', '10');
-      native.setProperty('hr-seek', 'yes');
-      native.setProperty('hr-seek-framedrop', 'yes');
+      native.setProperty('network-timeout', '15');
+      native.setProperty('demuxer-max-bytes', '50MiB');
+      native.setProperty('demuxer-max-back-bytes', '10MiB');
+
+      if (_streamType == 'm3u8') {
+        native.setProperty('hls-bitrate', 'max');
+        native.setProperty('demuxer-readahead-secs', '10');
+        native.setProperty('cache-secs', '30');
+        native.setProperty('hr-seek', 'yes');
+        native.setProperty('hr-seek-framedrop', 'yes');
+      } else if (_streamType == 'mkv' || _streamType == 'avi') {
+        native.setProperty('demuxer-readahead-secs', '30');
+        native.setProperty('cache-secs', '60');
+        native.setProperty('hr-seek', 'yes');
+        native.setProperty('hr-seek-framedrop', 'yes');
+        native.setProperty('index-mode', 'default');
+        native.setProperty('stream-buffer-size', '1m');
+      } else if (_streamType == 'mp4' || _streamType == 'ts') {
+        native.setProperty('demuxer-readahead-secs', '15');
+        native.setProperty('cache-secs', '30');
+        native.setProperty('hr-seek', 'yes');
+        native.setProperty('hr-seek-framedrop', 'yes');
+      }
     }
   }
 
-  Future<void> _open() async {
-    await player.open(
-      Media(
-        widget.streamUrl,
-        httpHeaders: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
-          'Connection': 'keep-alive',
-        },
-      ),
+  Media _media() {
+    return Media(
+      widget.streamUrl,
+      httpHeaders: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+        'Connection': 'keep-alive',
+      },
     );
+  }
 
-    if (widget.startAt != null && widget.startAt! > Duration.zero) {
-      await player.seek(widget.startAt!);
+  Future<void> _open({Duration? startAt}) async {
+    _initialOpenTimeout?.cancel();
+    _videoReadyCompleter = Completer<void>();
+    if (mounted) {
+      setState(() {
+        _showError = false;
+        _errorMessage = '';
+      });
     }
+    _initialOpenTimeout = Timer(const Duration(seconds: 15), () {
+      if (mounted && !(_videoReadyCompleter?.isCompleted ?? true)) {
+        _handlePlaybackError('Unable to play this stream. Tap to retry.');
+      }
+    });
 
-    await player.play();
+    try {
+      await player.open(_media(), play: true);
+
+      if (startAt != null && startAt > Duration.zero) {
+        await player.seek(startAt);
+      } else if (widget.startAt != null && widget.startAt! > Duration.zero) {
+        await player.seek(widget.startAt!);
+      }
+
+      await player.play();
+    } catch (_) {
+      _handlePlaybackError('Unable to play this stream. Tap to retry.');
+    }
   }
 
   void _listen() {
@@ -105,7 +165,10 @@ class _MoviePlayerScreenState extends State<MoviePlayerScreen> {
 
     _durationSub = player.stream.duration.listen((value) {
       if (!mounted) return;
-      setState(() => _duration = value);
+      setState(() {
+        _duration = value;
+        _updateBufferPercent();
+      });
     });
 
     _playingSub = player.stream.playing.listen((value) {
@@ -116,6 +179,33 @@ class _MoviePlayerScreenState extends State<MoviePlayerScreen> {
     _bufferingSub = player.stream.buffering.listen((value) {
       if (!mounted) return;
       setState(() => _isBuffering = value);
+    });
+
+    _bufferSub = player.stream.buffer.listen((value) {
+      if (!mounted) return;
+      setState(() {
+        _buffered = value;
+        _updateBufferPercent();
+      });
+    });
+
+    _errorSub = player.stream.error.listen((error) {
+      if (!mounted || error.isEmpty) return;
+      _handlePlaybackError('Unable to play this stream. Tap to retry.');
+    });
+
+    _videoParamsSub = player.stream.videoParams.listen((value) {
+      if (!mounted) return;
+      if (value.w != null && value.h != null) {
+        _initialOpenTimeout?.cancel();
+        if (!(_videoReadyCompleter?.isCompleted ?? true)) {
+          _videoReadyCompleter?.complete();
+        }
+        setState(() {
+          _showError = false;
+          _errorMessage = '';
+        });
+      }
     });
 
     _tracksSub = player.stream.tracks.listen((value) {
@@ -146,9 +236,63 @@ class _MoviePlayerScreenState extends State<MoviePlayerScreen> {
       _isSeeking = false;
       _position = target;
     });
+    await seekSmart(target);
+  }
+
+  Future<void> seekSmart(Duration target) async {
+    if (_streamType == 'mkv' || _streamType == 'avi') {
+      try {
+        await player.open(_media(), play: true);
+        await _waitForBufferingToSettle();
+        await player.seek(target);
+        await player.play();
+      } catch (_) {
+        _handlePlaybackError('Unable to play this stream. Tap to retry.');
+      }
+      return;
+    }
     await player.pause();
     await player.seek(target);
     await player.play();
+  }
+
+  Future<void> _waitForBufferingToSettle() async {
+    final completer = Completer<void>();
+    late final StreamSubscription<bool> bufferingWaitSub;
+    bufferingWaitSub = player.stream.buffering.listen((value) {
+      if (!completer.isCompleted && value == false) {
+        completer.complete();
+      }
+    });
+    try {
+      await completer.future.timeout(const Duration(seconds: 8));
+    } catch (_) {
+      // Keep seeking even if buffering status is delayed.
+    } finally {
+      await bufferingWaitSub.cancel();
+    }
+  }
+
+  void _updateBufferPercent() {
+    if (_duration.inMilliseconds <= 0) {
+      _bufferPercent = 0;
+      return;
+    }
+    _bufferPercent = (_buffered.inMilliseconds / _duration.inMilliseconds * 100).clamp(0, 100).toDouble();
+  }
+
+  void _handlePlaybackError(String message) {
+    _initialOpenTimeout?.cancel();
+    if (!mounted) return;
+    setState(() {
+      _showError = true;
+      _errorMessage = message;
+    });
+  }
+
+  Future<void> _retryOpen() async {
+    final resumeAt = _position > Duration.zero ? _position : null;
+    await _open(startAt: resumeAt);
   }
 
   Future<void> _saveWatchProgress() async {
@@ -190,11 +334,15 @@ class _MoviePlayerScreenState extends State<MoviePlayerScreen> {
   void dispose() {
     _overlayTimer?.cancel();
     _saveTimer?.cancel();
+    _initialOpenTimeout?.cancel();
     _saveWatchProgress();
     _positionSub?.cancel();
     _durationSub?.cancel();
     _playingSub?.cancel();
     _bufferingSub?.cancel();
+    _bufferSub?.cancel();
+    _errorSub?.cancel();
+    _videoParamsSub?.cancel();
     _tracksSub?.cancel();
     _trackSub?.cancel();
     player.dispose();
@@ -231,6 +379,51 @@ class _MoviePlayerScreenState extends State<MoviePlayerScreen> {
                     color: Colors.black26,
                     child: Center(
                       child: CircularProgressIndicator(),
+                    ),
+                  ),
+                ),
+              if (_isBuffering)
+                Positioned(
+                  top: 16,
+                  left: 0,
+                  right: 0,
+                  child: Center(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: Colors.black54,
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                      child: Text(
+                        'Buffering ${_bufferPercent.toStringAsFixed(0)}%',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              if (_showError)
+                Positioned.fill(
+                  child: ColoredBox(
+                    color: Colors.black54,
+                    child: Center(
+                      child: GestureDetector(
+                        onTap: _retryOpen,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                          decoration: BoxDecoration(
+                            color: Colors.black87,
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Text(
+                            _errorMessage,
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(color: Colors.white),
+                          ),
+                        ),
+                      ),
                     ),
                   ),
                 ),
