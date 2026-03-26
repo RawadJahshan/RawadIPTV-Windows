@@ -133,6 +133,18 @@ class XtreamApi {
     }
   }
 
+
+  Future<List<Map<String, dynamic>>> getVodStreamsStrict({int? categoryId}) async {
+    var url = '$_baseUrl&action=get_vod_streams';
+    if (categoryId != null) {
+      url += '&category_id=$categoryId';
+    }
+    return _getListWithCache(
+      url,
+      options: Options(receiveTimeout: const Duration(seconds: 60)),
+    );
+  }
+
   Future<Map<String, dynamic>> getVodInfo(int vodId) async {
     final url = '$_baseUrl&action=get_vod_info&vod_id=$vodId';
     try {

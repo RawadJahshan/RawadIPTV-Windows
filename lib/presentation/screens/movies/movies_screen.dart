@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../data/datasources/remote/xtream_api.dart';
 import '../../../data/models/movie_category.dart';
+import 'movie_list_screen.dart';
 
 class MoviesScreen extends StatefulWidget {
   final XtreamApi xtreamApi;
@@ -124,7 +125,18 @@ class _MoviesScreenState extends State<MoviesScreen> {
                         category.name,
                         style: const TextStyle(color: Colors.white),
                       ),
-                      onTap: () => debugPrint('Movie category tapped: ${category.name}'),
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => MovieListScreen(
+                              xtreamApi: widget.xtreamApi,
+                              categoryId: category.id,
+                              categoryName: category.name,
+                            ),
+                          ),
+                        );
+                      },
                     );
                   },
                 ),
