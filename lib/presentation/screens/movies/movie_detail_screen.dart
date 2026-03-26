@@ -1,8 +1,12 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../../data/datasources/remote/xtream_api.dart';
 import '../../../data/models/movie_item.dart';
+import '../player/movie_player_screen.dart';
 
 class MovieDetailScreen extends StatefulWidget {
   final XtreamApi xtreamApi;
@@ -125,6 +129,47 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
     }
 
     await launchUrl(uri, mode: LaunchMode.externalApplication);
+  }
+
+
+
+  Future<Duration?> _loadSavedStartAt() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString('movie_progress_${widget.movie.streamId}');
+    if (raw == null || raw.isEmpty) return null;
+
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map<String, dynamic>) return null;
+
+      final positionMs = int.tryParse(decoded['positionMs'].toString()) ?? 0;
+      if (positionMs <= 0) return null;
+      return Duration(milliseconds: positionMs);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> _openMoviePlayer() async {
+    final startAt = await _loadSavedStartAt();
+    if (!mounted) return;
+
+    final streamUrl = widget.movie.streamUrl(
+      widget.xtreamApi.serverUrl,
+      widget.xtreamApi.username,
+      widget.xtreamApi.password,
+    );
+
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => MoviePlayerScreen(
+          streamUrl: streamUrl,
+          title: _title,
+          streamId: widget.movie.streamId,
+          startAt: startAt,
+        ),
+      ),
+    );
   }
 
   @override
@@ -308,7 +353,7 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
       children: [
         Expanded(
           child: ElevatedButton.icon(
-            onPressed: null,
+            onPressed: _openMoviePlayer,
             style: ElevatedButton.styleFrom(
               backgroundColor: const Color(0xFF0077B6),
               disabledBackgroundColor: const Color(0xFF0077B6),
