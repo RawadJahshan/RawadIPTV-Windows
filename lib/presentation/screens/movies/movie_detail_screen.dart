@@ -124,15 +124,6 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
             ),
           Container(color: Colors.black.withValues(alpha: 0.75)),
           SafeArea(
-            child: Align(
-              alignment: Alignment.topLeft,
-              child: Padding(
-                padding: const EdgeInsets.all(20),
-                child: _PremiumBackButton(onPressed: () => Navigator.maybePop(context)),
-              ),
-            ),
-          ),
-          SafeArea(
             child: SingleChildScrollView(
               padding: const EdgeInsets.all(24),
               child: Row(
@@ -191,7 +182,16 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
                 ],
               ),
             ),
-          )
+          ),
+          SafeArea(
+            child: Align(
+              alignment: Alignment.topLeft,
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: _PremiumBackButton(onPressed: () => Navigator.maybePop(context)),
+              ),
+            ),
+          ),
         ],
       ),
     );
@@ -212,16 +212,35 @@ class _PremiumBackButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.45),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: Colors.white24),
-      ),
-      child: IconButton(
-        tooltip: 'Back',
-        onPressed: onPressed,
-        icon: const Icon(Icons.arrow_back_rounded),
+    return Material(
+      color: Colors.transparent,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: Colors.black.withValues(alpha: 0.72),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.white54),
+          boxShadow: const [
+            BoxShadow(color: Color(0x66000000), blurRadius: 10, offset: Offset(0, 4)),
+          ],
+        ),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(12),
+          onTap: onPressed,
+          child: const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.arrow_back_rounded, color: Colors.white),
+                SizedBox(width: 6),
+                Text(
+                  'Back',
+                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
