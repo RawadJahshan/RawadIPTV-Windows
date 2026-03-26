@@ -551,7 +551,7 @@ class _ChannelsDetailScreenState extends State<ChannelsDetailScreen> {
                                 ),
                                 decoration: BoxDecoration(
                                   color:
-                                      Colors.black.withOpacity(0.7),
+                                      Colors.black.withValues(alpha: 0.7),
                                   borderRadius:
                                       BorderRadius.circular(6),
                                 ),

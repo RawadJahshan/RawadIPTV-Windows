@@ -9,7 +9,6 @@ class PersistentPlayerService {
     configuration: const PlayerConfiguration(
       title: 'IPTV Playback',
       osc: false,
-      ready: true,
       logLevel: MPVLogLevel.warn,
       vo: 'gpu-next',
       bufferSize: 96 * 1024 * 1024,

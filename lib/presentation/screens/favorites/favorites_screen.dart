@@ -48,9 +48,9 @@ class _FavoritesScreenState extends State<FavoritesScreen>
       ]);
 
       final allChannels =
-          (results[0] as List<Map<String, dynamic>>)
+          (results[0] as List)
               .map((json) => Channel.fromJson(
-                    json,
+                    Map<String, dynamic>.from(json as Map),
                     widget.xtreamApi.serverUrl,
                     widget.xtreamApi.username,
                     widget.xtreamApi.password,
@@ -58,9 +58,9 @@ class _FavoritesScreenState extends State<FavoritesScreen>
               .toList();
 
       final allMovies =
-          (results[1] as List<Map<String, dynamic>>)
+          (results[1] as List)
               .map((json) => Movie.fromJson(
-                    json,
+                    Map<String, dynamic>.from(json as Map),
                     widget.xtreamApi.serverUrl,
                     widget.xtreamApi.username,
                     widget.xtreamApi.password,
@@ -68,8 +68,8 @@ class _FavoritesScreenState extends State<FavoritesScreen>
               .toList();
 
       final allSeries =
-          (results[2] as List<Map<String, dynamic>>)
-              .map((json) => Series.fromJson(json))
+          (results[2] as List)
+              .map((json) => Series.fromJson(Map<String, dynamic>.from(json as Map)))
               .toList();
 
       if (mounted) {
@@ -154,7 +154,7 @@ class _FavoritesScreenState extends State<FavoritesScreen>
     }
     return ListView.separated(
       padding: const EdgeInsets.all(12),
-      separatorBuilder: (_, __) =>
+      separatorBuilder: (_, index) =>
           const Divider(color: Colors.white12),
       itemCount: _favoriteChannels.length,
       itemBuilder: (context, index) {
@@ -173,7 +173,7 @@ class _FavoritesScreenState extends State<FavoritesScreen>
                     child: Image.network(
                       channel.logoUrl,
                       fit: BoxFit.contain,
-                      errorBuilder: (_, __, ___) => const Icon(
+                      errorBuilder: (_, error, stackTrace) => const Icon(
                         Icons.tv,
                         color: Colors.white54,
                       ),
@@ -282,7 +282,7 @@ class _FavoritesScreenState extends State<FavoritesScreen>
                                 movie.logoUrl,
                                 width: double.infinity,
                                 fit: BoxFit.cover,
-                                errorBuilder: (_, __, ___) =>
+                                errorBuilder: (_, error, stackTrace) =>
                                     _buildPlaceholder(Icons.movie),
                               )
                             : _buildPlaceholder(Icons.movie),
@@ -317,7 +317,7 @@ class _FavoritesScreenState extends State<FavoritesScreen>
                   child: Container(
                     padding: const EdgeInsets.all(4),
                     decoration: BoxDecoration(
-                      color: Colors.black.withOpacity(0.6),
+                      color: Colors.black.withValues(alpha: 0.6),
                       shape: BoxShape.circle,
                     ),
                     child: const Icon(
@@ -385,7 +385,7 @@ class _FavoritesScreenState extends State<FavoritesScreen>
                                 series.logoUrl,
                                 width: double.infinity,
                                 fit: BoxFit.cover,
-                                errorBuilder: (_, __, ___) =>
+                                errorBuilder: (_, error, stackTrace) =>
                                     _buildPlaceholder(
                                       Icons.video_library,
                                     ),
@@ -440,7 +440,7 @@ class _FavoritesScreenState extends State<FavoritesScreen>
                   child: Container(
                     padding: const EdgeInsets.all(4),
                     decoration: BoxDecoration(
-                      color: Colors.black.withOpacity(0.6),
+                      color: Colors.black.withValues(alpha: 0.6),
                       shape: BoxShape.circle,
                     ),
                     child: const Icon(

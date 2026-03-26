@@ -133,7 +133,7 @@ class _SeriesDetailScreenState extends State<SeriesDetailScreen> {
       body: Stack(
         children: [
           if (backdrop != null && backdrop.isNotEmpty) Positioned.fill(child: Image.network(backdrop, fit: BoxFit.cover)),
-          Positioned.fill(child: Container(color: Colors.black.withOpacity(0.78))),
+          Positioned.fill(child: Container(color: Colors.black.withValues(alpha: 0.78))),
           SafeArea(
             child: ListView(
               padding: const EdgeInsets.all(24),

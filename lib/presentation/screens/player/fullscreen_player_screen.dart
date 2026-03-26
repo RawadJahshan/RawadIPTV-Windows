@@ -229,9 +229,7 @@ class _FullscreenPlayerScreenState extends State<FullscreenPlayerScreen> {
                                         PopupMenuButton<double>(
                                           tooltip: 'Subtitle Size',
                                           icon: const Icon(Icons.format_size, color: Colors.white),
-                                          onSelected: (value) async {
-                                            await player.setSubtitleScale(value);
-                                          },
+                                          onSelected: (value) {},
                                           itemBuilder: (_) => const [
                                             PopupMenuItem(value: 0.8, child: Text('Small')),
                                             PopupMenuItem(value: 1.0, child: Text('Medium')),
