@@ -88,6 +88,16 @@ class PersistentPlayerService {
             await _seekWithRecovery(startAt, operationId: operationId, sourceUrl: requestedUrl);
           }
 
+          final playbackStateAfterOpen = player.state.playing;
+          debugPrint(
+            '[PersistentPlayerService] [op:$operationId] playback state after open: '
+            'playing=$playbackStateAfterOpen position=${player.state.position}',
+          );
+          if (!playbackStateAfterOpen) {
+            debugPrint('[PersistentPlayerService] [op:$operationId] player.play invoked after open');
+            await player.play();
+          }
+
           _lastOpenedUrl = requestedUrl;
           _state = PlayerLifecycleState.playing;
           debugPrint('[PersistentPlayerService] [op:$operationId] next media open completed: $requestedUrl');
