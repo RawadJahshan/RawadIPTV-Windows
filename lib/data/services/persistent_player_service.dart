@@ -32,6 +32,7 @@ class PersistentPlayerService {
   String? _lastOpenedUrl;
   PlayerLifecycleState _state = PlayerLifecycleState.idle;
   Future<void> _lifecycleOp = Future<void>.value();
+  int _operationSeq = 0;
 
   Future<T> _runExclusive<T>({
     required String operationName,
@@ -67,26 +68,38 @@ class PersistentPlayerService {
       operationName: 'open',
       operation: () async {
         final requestedUrl = sourceUrl;
-        debugPrint('[PersistentPlayerService] next media open requested: $requestedUrl');
+        final operationId = ++_operationSeq;
+        debugPrint('[PersistentPlayerService] [op:$operationId] next media open requested: $requestedUrl');
 
+        final wasPlayingBefore = _state == PlayerLifecycleState.playing;
         _state = PlayerLifecycleState.opening;
-        debugPrint('[PersistentPlayerService] next media open started: $requestedUrl');
-
-        debugPrint('[PersistentPlayerService] player stop started (before open)');
-        await player.stop();
-        debugPrint('[PersistentPlayerService] player stop completed (before open)');
+        debugPrint('[PersistentPlayerService] [op:$operationId] next media open started: $requestedUrl');
 
         try {
-          await player.open(media, play: true);
+          final sameSourceAsCurrent = wasPlayingBefore && _lastOpenedUrl == requestedUrl;
+          if (!sameSourceAsCurrent) {
+            await player.open(media, play: true).timeout(
+              const Duration(seconds: 20),
+              onTimeout: () {
+                debugPrint('[PersistentPlayerService] [op:$operationId] player.open timeout for $requestedUrl');
+                throw TimeoutException('Timed out while opening media');
+              },
+            );
+          } else {
+            await player.play();
+            debugPrint('[PersistentPlayerService] [op:$operationId] skipped open; source unchanged');
+          }
+
           if (startAt != null && startAt > Duration.zero) {
             await player.seek(startAt);
           }
+
           _lastOpenedUrl = requestedUrl;
           _state = PlayerLifecycleState.playing;
-          debugPrint('[PersistentPlayerService] next media open completed: $requestedUrl');
+          debugPrint('[PersistentPlayerService] [op:$operationId] next media open completed: $requestedUrl');
         } catch (error) {
           _state = PlayerLifecycleState.idle;
-          debugPrint('[PersistentPlayerService] next media open failed: $requestedUrl -> $error');
+          debugPrint('[PersistentPlayerService] [op:$operationId] next media open failed: $requestedUrl -> $error');
           rethrow;
         }
       },
@@ -97,17 +110,28 @@ class PersistentPlayerService {
     return _runExclusive<void>(
       operationName: 'close',
       operation: () async {
-        debugPrint('[PersistentPlayerService] player close requested');
+        final operationId = ++_operationSeq;
+        debugPrint('[PersistentPlayerService] [op:$operationId] player close requested');
         _state = PlayerLifecycleState.stopping;
 
-        debugPrint('[PersistentPlayerService] player stop started');
-        await player.stop();
-        debugPrint('[PersistentPlayerService] player stop completed');
+        debugPrint('[PersistentPlayerService] [op:$operationId] player stop started');
+        await player.stop().timeout(
+          const Duration(seconds: 6),
+          onTimeout: () {
+            debugPrint('[PersistentPlayerService] [op:$operationId] player stop timeout; continuing reset');
+          },
+        );
+        debugPrint('[PersistentPlayerService] [op:$operationId] player stop completed');
 
         _lastOpenedUrl = null;
         _state = PlayerLifecycleState.idle;
-        debugPrint('[PersistentPlayerService] player cleanup/reset completed');
+        debugPrint('[PersistentPlayerService] [op:$operationId] player cleanup/reset completed');
       },
     );
+  }
+
+  Future<void> clearSessionCache() async {
+    _lastOpenedUrl = null;
+    await stopAndResetForClose();
   }
 }

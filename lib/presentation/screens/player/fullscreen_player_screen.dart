@@ -67,6 +67,9 @@ class _FullscreenPlayerScreenState extends State<FullscreenPlayerScreen> {
   Duration? _pendingSeekTarget;
   Stopwatch? _seekSw;
   bool _isStoppingForClose = false;
+  bool _didHandleClose = false;
+  bool _isOpening = true;
+  String? _openError;
 
   @override
   void initState() {
@@ -84,19 +87,35 @@ class _FullscreenPlayerScreenState extends State<FullscreenPlayerScreen> {
       details: widget.args.title,
     );
     final openStart = Stopwatch()..start();
-    await _playerService.openMedia(
-      Media(widget.args.streamUrl, httpHeaders: const {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
-        'Connection': 'keep-alive',
-      }),
-      sourceUrl: widget.args.streamUrl,
-      startAt: widget.args.startAt,
-    );
-    PerformanceLogger.log(
-      'player_open_started_to_open_complete',
-      openStart.elapsed,
-      details: widget.args.title,
-    );
+    try {
+      await _playerService.openMedia(
+        Media(widget.args.streamUrl, httpHeaders: const {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+          'Connection': 'keep-alive',
+        }),
+        sourceUrl: widget.args.streamUrl,
+        startAt: widget.args.startAt,
+      );
+      PerformanceLogger.log(
+        'player_open_started_to_open_complete',
+        openStart.elapsed,
+        details: widget.args.title,
+      );
+      if (mounted) {
+        setState(() {
+          _isOpening = false;
+          _openError = null;
+        });
+      }
+    } catch (error) {
+      debugPrint('[FullscreenPlayerScreen] failed to open ${widget.args.title}: $error');
+      if (mounted) {
+        setState(() {
+          _isOpening = false;
+          _openError = 'Unable to open stream.';
+        });
+      }
+    }
   }
 
   void _attachListeners() {
@@ -166,7 +185,9 @@ class _FullscreenPlayerScreenState extends State<FullscreenPlayerScreen> {
 
   @override
   void dispose() {
-    unawaited(_stopPlaybackForClose());
+    if (!_didHandleClose) {
+      unawaited(_stopPlaybackForClose(markClosed: false));
+    }
     _hideTimer?.cancel();
     _tracksSub?.cancel();
     _trackSub?.cancel();
@@ -199,8 +220,44 @@ class _FullscreenPlayerScreenState extends State<FullscreenPlayerScreen> {
             child: Stack(
               children: [
                 Positioned.fill(
-                  child: Video(controller: _playerService.videoController, fit: BoxFit.contain),
+                  child: Video(
+                    controller: _playerService.videoController,
+                    fit: BoxFit.contain,
+                    controls: (state) => const SizedBox.shrink(),
+                  ),
                 ),
+                if (_isOpening)
+                  const Positioned.fill(
+                    child: ColoredBox(
+                      color: Color(0x80000000),
+                      child: Center(child: CircularProgressIndicator()),
+                    ),
+                  ),
+                if (_openError != null)
+                  Positioned.fill(
+                    child: ColoredBox(
+                      color: const Color(0x99000000),
+                      child: Center(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(_openError!, style: const TextStyle(color: Colors.white70)),
+                            const SizedBox(height: 12),
+                            FilledButton(
+                              onPressed: () {
+                                setState(() {
+                                  _isOpening = true;
+                                  _openError = null;
+                                });
+                                _open();
+                              },
+                              child: const Text('Retry'),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
                 if (_overlayVisible)
                   Positioned.fill(
                     child: Container(
@@ -302,10 +359,11 @@ class _FullscreenPlayerScreenState extends State<FullscreenPlayerScreen> {
     );
   }
 
-  Future<void> _stopPlaybackForClose() async {
+  Future<void> _stopPlaybackForClose({bool markClosed = true}) async {
     if (_isStoppingForClose) return;
     _isStoppingForClose = true;
     try {
+      if (markClosed) _didHandleClose = true;
       await _playerService.stopAndResetForClose();
     } finally {
       _isStoppingForClose = false;
