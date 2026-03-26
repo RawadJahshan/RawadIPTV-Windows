@@ -21,7 +21,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Cache cleared: metadata, resume progress, playback session, and image cache.'),
+          content: Text('Cache cleared: metadata and image cache.'),
         ),
       );
     } catch (error) {
@@ -50,7 +50,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           Card(
             child: ListTile(
               title: const Text('Clear Cache'),
-              subtitle: const Text('Clears in-memory metadata, image cache, saved resume progress, and active playback session.'),
+              subtitle: const Text('Clears in-memory metadata and image cache.'),
               trailing: _isClearingCache
                   ? const SizedBox(
                       width: 20,

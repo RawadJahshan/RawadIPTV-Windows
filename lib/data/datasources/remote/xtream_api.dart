@@ -12,18 +12,20 @@ class XtreamApi {
 
   XtreamApi() {
     _instances.add(this);
-    _dio = Dio(BaseOptions(
-      connectTimeout: const Duration(seconds: 10),
-      receiveTimeout: const Duration(seconds: 60),
-      sendTimeout: const Duration(seconds: 10),
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
-        'Connection': 'keep-alive',
-        'Accept-Encoding': 'gzip, deflate',
-        'Accept': '*/*',
-      },
-      responseType: ResponseType.json,
-    ));
+    _dio = Dio(
+      BaseOptions(
+        connectTimeout: const Duration(seconds: 10),
+        receiveTimeout: const Duration(seconds: 60),
+        sendTimeout: const Duration(seconds: 10),
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+          'Connection': 'keep-alive',
+          'Accept-Encoding': 'gzip, deflate',
+          'Accept': '*/*',
+        },
+        responseType: ResponseType.json,
+      ),
+    );
 
     _dio.interceptors.add(
       InterceptorsWrapper(
@@ -52,8 +54,7 @@ class XtreamApi {
   String get username => _username;
   String get password => _password;
 
-  String get _baseUrl =>
-      '$_serverUrl/player_api.php?username=$_username&password=$_password';
+  String get _baseUrl => '$_serverUrl/player_api.php?username=$_username&password=$_password';
 
   static void clearAllInMemoryCaches() {
     for (final instance in _instances) {
@@ -62,7 +63,6 @@ class XtreamApi {
     debugPrint('XtreamApi: Cleared in-memory metadata/list caches for ${_instances.length} instance(s)');
   }
 
-  // ─── Auth ────────────────────────────────────────────────
   Future<Map<String, dynamic>> authenticate(
     String serverUrl,
     String username,
@@ -72,24 +72,19 @@ class XtreamApi {
       if (serverUrl.endsWith('/')) {
         serverUrl = serverUrl.substring(0, serverUrl.length - 1);
       }
-      final url =
-          '$serverUrl/player_api.php?username=$username&password=$password';
+      final url = '$serverUrl/player_api.php?username=$username&password=$password';
       final response = await _dio.get(url);
       if (response.statusCode == 200) {
         return {'success': true, 'data': response.data};
       }
       return {'success': false, 'message': 'Invalid credentials'};
     } on DioException catch (e) {
-      return {
-        'success': false,
-        'message': e.message ?? 'Connection failed',
-      };
+      return {'success': false, 'message': e.message ?? 'Connection failed'};
     } catch (e) {
       return {'success': false, 'message': 'Something went wrong'};
     }
   }
 
-  // ─── Live TV ─────────────────────────────────────────────
   Future<List<Map<String, dynamic>>> getLiveCategories() async {
     try {
       return await _getListWithCache('$_baseUrl&action=get_live_categories');
@@ -99,17 +94,13 @@ class XtreamApi {
     }
   }
 
-  Future<List<Map<String, dynamic>>> getLiveStreams({
-    int? categoryId,
-  }) async {
+  Future<List<Map<String, dynamic>>> getLiveStreams({int? categoryId}) async {
     try {
       var url = '$_baseUrl&action=get_live_streams';
       if (categoryId != null) url += '&category_id=$categoryId';
       return await _getListWithCache(
         url,
-        options: Options(
-          receiveTimeout: const Duration(seconds: 60),
-        ),
+        options: Options(receiveTimeout: const Duration(seconds: 60)),
       );
     } catch (e) {
       debugPrint('getLiveStreams error: $e');
@@ -117,108 +108,15 @@ class XtreamApi {
     }
   }
 
-  // ─── Movies ──────────────────────────────────────────────
-  Future<List<Map<String, dynamic>>> getMovieCategories() async {
-    try {
-      return await _getListWithCache('$_baseUrl&action=get_vod_categories');
-    } catch (e) {
-      debugPrint('getMovieCategories error: $e');
-      return [];
-    }
-  }
-
-  Future<List<Map<String, dynamic>>> getMovies({
-    int? categoryId,
-  }) async {
-    try {
-      var url = '$_baseUrl&action=get_vod_streams';
-      if (categoryId != null) url += '&category_id=$categoryId';
-      return await _getListWithCache(
-        url,
-        options: Options(
-          receiveTimeout: const Duration(seconds: 120),
-        ),
-      );
-    } catch (e) {
-      debugPrint('getMovies error: $e');
-      return [];
-    }
-  }
-
-  Future<Map<String, dynamic>> getMovieInfo(int movieId) async {
-    try {
-      return await _getMapWithCache('$_baseUrl&action=get_vod_info&vod_id=$movieId');
-    } catch (e) {
-      debugPrint('getMovieInfo error: $e');
-      return {};
-    }
-  }
-
-  // ─── Series ──────────────────────────────────────────────
-  Future<List<Map<String, dynamic>>> getSeriesCategories() async {
-    try {
-      return await _getListWithCache('$_baseUrl&action=get_series_categories');
-    } catch (e) {
-      debugPrint('getSeriesCategories error: $e');
-      return [];
-    }
-  }
-
-  Future<List<Map<String, dynamic>>> getSeries({
-    int? categoryId,
-  }) async {
-    try {
-      var url = '$_baseUrl&action=get_series';
-      if (categoryId != null) url += '&category_id=$categoryId';
-      return await _getListWithCache(
-        url,
-        options: Options(
-          receiveTimeout: const Duration(seconds: 120),
-        ),
-      );
-    } catch (e) {
-      debugPrint('getSeries error: $e');
-      return [];
-    }
-  }
-
-  Future<Map<String, dynamic>> getSeriesInfo(int seriesId) async {
-    try {
-      return await _getMapWithCache(
-        '$_baseUrl&action=get_series_info&series_id=$seriesId',
-        options: Options(
-          receiveTimeout: const Duration(seconds: 60),
-        ),
-      );
-    } catch (e) {
-      debugPrint('getSeriesInfo error: $e');
-      return {};
-    }
-  }
-
-  // ─── Helpers ─────────────────────────────────────────────
   List<Map<String, dynamic>> _parseList(dynamic data) {
     if (data == null) return [];
     if (data is List) {
-      return data
-          .whereType<Map>()
-          .map((e) => Map<String, dynamic>.from(e))
-          .toList();
+      return data.whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
     }
     if (data is Map) {
-      return data.values
-          .whereType<Map>()
-          .map((e) => Map<String, dynamic>.from(e))
-          .toList();
+      return data.values.whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
     }
     return [];
-  }
-
-  Map<String, dynamic> _parseMap(dynamic data) {
-    if (data == null) return {};
-    if (data is Map<String, dynamic>) return data;
-    if (data is Map) return Map<String, dynamic>.from(data);
-    return {};
   }
 
   Future<List<Map<String, dynamic>>> _getListWithCache(
@@ -233,21 +131,6 @@ class XtreamApi {
     final response = await _dio.get(url, options: options);
     final parsed = _parseList(response.data);
     _memoryResponseCache[url] = parsed.map((item) => Map<String, dynamic>.from(item)).toList();
-    return parsed;
-  }
-
-  Future<Map<String, dynamic>> _getMapWithCache(
-    String url, {
-    Options? options,
-  }) async {
-    final cached = _memoryResponseCache[url];
-    if (cached is Map<String, dynamic>) {
-      return Map<String, dynamic>.from(cached);
-    }
-
-    final response = await _dio.get(url, options: options);
-    final parsed = _parseMap(response.data);
-    _memoryResponseCache[url] = Map<String, dynamic>.from(parsed);
     return parsed;
   }
 }

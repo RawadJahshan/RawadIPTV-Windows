@@ -15,8 +15,7 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
-  late TabController _tabController;
+class _HomeScreenState extends State<HomeScreen> {
   late Timer _timer;
   String _currentDate = '';
   String _currentTime = '';
@@ -24,7 +23,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 3, vsync: this);
     _updateDateTime();
     _timer = Timer.periodic(const Duration(seconds: 1), (_) => _updateDateTime());
   }
@@ -39,7 +37,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
   @override
   void dispose() {
-    _tabController.dispose();
     _timer.cancel();
     super.dispose();
   }
@@ -71,10 +68,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              _currentDate,
-              style: const TextStyle(fontSize: 14),
-            ),
+            Text(_currentDate, style: const TextStyle(fontSize: 14)),
             Text(
               _currentTime,
               style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
@@ -88,104 +82,51 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             tooltip: 'Settings',
           ),
         ],
-        bottom: TabBar(
-          controller: _tabController,
-          indicatorColor: AppColors.highlight,
-          tabs: const [
-            Tab(text: 'Live TV'),
-            Tab(text: 'Movies'),
-            Tab(text: 'Series'),
+      ),
+      body: Padding(
+        padding: const EdgeInsets.all(24.0),
+        child: ListView(
+          children: [
+            const Icon(Icons.check_circle, color: Colors.green, size: 80),
+            const SizedBox(height: 24),
+            const Text(
+              'Login Successful!',
+              style: TextStyle(
+                color: AppColors.textPrimary,
+                fontSize: 28,
+                fontWeight: FontWeight.bold,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'Welcome, ${widget.userInfo.username}',
+              style: const TextStyle(color: AppColors.textSecondary, fontSize: 18),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Status: ${widget.userInfo.status}',
+              style: const TextStyle(color: Colors.green, fontSize: 16),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Expires: ${formatUnixTimestamp(widget.userInfo.expDate)}',
+              style: const TextStyle(color: AppColors.textSecondary, fontSize: 16),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 32),
+            const Divider(color: Colors.white54),
+            const SizedBox(height: 16),
+            const Center(
+              child: Text(
+                'Live TV Channel List will appear here',
+                style: TextStyle(color: AppColors.textPrimary, fontSize: 18),
+              ),
+            ),
           ],
         ),
-      ),
-      body: TabBarView(
-        controller: _tabController,
-        children: [
-          _liveTVPage(),
-          _moviesPage(),
-          _seriesPage(),
-        ],
-      ),
-    );
-  }
-
-  Widget _liveTVPage() {
-    return Padding(
-      padding: const EdgeInsets.all(24.0),
-      child: ListView(
-        children: [
-          const Icon(
-            Icons.check_circle,
-            color: Colors.green,
-            size: 80,
-          ),
-          const SizedBox(height: 24),
-          const Text(
-            'Login Successful!',
-            style: TextStyle(
-              color: AppColors.textPrimary,
-              fontSize: 28,
-              fontWeight: FontWeight.bold,
-            ),
-            textAlign: TextAlign.center,
-          ),
-          const SizedBox(height: 16),
-          Text(
-            'Welcome, ${widget.userInfo.username}',
-            style: const TextStyle(
-              color: AppColors.textSecondary,
-              fontSize: 18,
-            ),
-            textAlign: TextAlign.center,
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'Status: ${widget.userInfo.status}',
-            style: const TextStyle(
-              color: Colors.green,
-              fontSize: 16,
-            ),
-            textAlign: TextAlign.center,
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'Expires: ${formatUnixTimestamp(widget.userInfo.expDate)}',
-            style: const TextStyle(
-              color: AppColors.textSecondary,
-              fontSize: 16,
-            ),
-            textAlign: TextAlign.center,
-          ),
-
-          const SizedBox(height: 32),
-          const Divider(color: Colors.white54),
-          const SizedBox(height: 16),
-
-          const Center(
-            child: Text(
-              'Live TV Channel List will appear here',
-              style: TextStyle(color: AppColors.textPrimary, fontSize: 18),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _moviesPage() {
-    return const Center(
-      child: Text(
-        'Movies will be displayed here',
-        style: TextStyle(color: AppColors.textPrimary, fontSize: 18),
-      ),
-    );
-  }
-
-  Widget _seriesPage() {
-    return const Center(
-      child: Text(
-        'Series will be displayed here',
-        style: TextStyle(color: AppColors.textPrimary, fontSize: 18),
       ),
     );
   }
