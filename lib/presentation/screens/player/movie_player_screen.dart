@@ -43,20 +43,16 @@ class _MoviePlayerScreenState extends State<MoviePlayerScreen> {
   StreamSubscription<Track>? _trackSub;
   Timer? _overlayTimer;
   Timer? _saveTimer;
-  Timer? _initialOpenTimeout;
 
   Duration _position = Duration.zero;
-  Duration _duration = Duration.zero;
+  Duration _totalDuration = Duration.zero;
   bool _isPlaying = false;
   bool _isBuffering = false;
   bool _showControls = true;
   bool _isSeeking = false;
-  bool _showError = false;
-  String _errorMessage = '';
+  bool _hasError = false;
   Duration _buffered = Duration.zero;
-  double _bufferPercent = 0;
   late final String _streamType;
-  Completer<void>? _videoReadyCompleter;
 
   Tracks _tracks = const Tracks();
   Track _selectedTrack = const Track();
@@ -67,7 +63,7 @@ class _MoviePlayerScreenState extends State<MoviePlayerScreen> {
   void initState() {
     super.initState();
     MediaKit.ensureInitialized();
-    _streamType = getStreamType(widget.streamUrl);
+    _streamType = _getStreamType(widget.streamUrl);
     _configurePlayer();
     _listen();
     _showControlsAndResetTimer();
@@ -75,7 +71,7 @@ class _MoviePlayerScreenState extends State<MoviePlayerScreen> {
     _open();
   }
 
-  String getStreamType(String url) {
+  String _getStreamType(String url) {
     final lower = url.toLowerCase().split('?').first;
     if (lower.endsWith('.m3u8')) return 'm3u8';
     if (lower.endsWith('.mp4')) return 'mp4';
@@ -128,19 +124,11 @@ class _MoviePlayerScreenState extends State<MoviePlayerScreen> {
   }
 
   Future<void> _open({Duration? startAt}) async {
-    _initialOpenTimeout?.cancel();
-    _videoReadyCompleter = Completer<void>();
     if (mounted) {
       setState(() {
-        _showError = false;
-        _errorMessage = '';
+        _hasError = false;
       });
     }
-    _initialOpenTimeout = Timer(const Duration(seconds: 15), () {
-      if (mounted && !(_videoReadyCompleter?.isCompleted ?? true)) {
-        _handlePlaybackError('Unable to play this stream. Tap to retry.');
-      }
-    });
 
     try {
       await player.open(_media(), play: true);
@@ -153,7 +141,7 @@ class _MoviePlayerScreenState extends State<MoviePlayerScreen> {
 
       await player.play();
     } catch (_) {
-      _handlePlaybackError('Unable to play this stream. Tap to retry.');
+      if (mounted) setState(() => _hasError = true);
     }
   }
 
@@ -166,8 +154,7 @@ class _MoviePlayerScreenState extends State<MoviePlayerScreen> {
     _durationSub = player.stream.duration.listen((value) {
       if (!mounted) return;
       setState(() {
-        _duration = value;
-        _updateBufferPercent();
+        _totalDuration = value;
       });
     });
 
@@ -185,28 +172,15 @@ class _MoviePlayerScreenState extends State<MoviePlayerScreen> {
       if (!mounted) return;
       setState(() {
         _buffered = value;
-        _updateBufferPercent();
       });
     });
 
     _errorSub = player.stream.error.listen((error) {
-      if (!mounted || error.isEmpty) return;
-      _handlePlaybackError('Unable to play this stream. Tap to retry.');
+      debugPrint('[MoviePlayer] error: $error');
+      if (mounted) setState(() => _hasError = true);
     });
 
-    _videoParamsSub = player.stream.videoParams.listen((value) {
-      if (!mounted) return;
-      if (value.w != null && value.h != null) {
-        _initialOpenTimeout?.cancel();
-        if (!(_videoReadyCompleter?.isCompleted ?? true)) {
-          _videoReadyCompleter?.complete();
-        }
-        setState(() {
-          _showError = false;
-          _errorMessage = '';
-        });
-      }
-    });
+    _videoParamsSub = player.stream.videoParams.listen((_) {});
 
     _tracksSub = player.stream.tracks.listen((value) {
       if (!mounted) return;
@@ -236,67 +210,84 @@ class _MoviePlayerScreenState extends State<MoviePlayerScreen> {
       _isSeeking = false;
       _position = target;
     });
-    await seekSmart(target);
+    await _seekSmart(target);
   }
 
-  Future<void> seekSmart(Duration target) async {
-    if (_streamType == 'mkv' || _streamType == 'avi') {
-      try {
-        await player.open(_media(), play: true);
-        await _waitForBufferingToSettle();
-        await player.seek(target);
-        await player.play();
-      } catch (_) {
-        _handlePlaybackError('Unable to play this stream. Tap to retry.');
-      }
-      return;
-    }
-    await player.pause();
-    await player.seek(target);
-    await player.play();
-  }
+  Future<void> _seekSmart(Duration target) async {
+    if (_isSeeking) return;
+    setState(() => _isSeeking = true);
 
-  Future<void> _waitForBufferingToSettle() async {
-    final completer = Completer<void>();
-    late final StreamSubscription<bool> bufferingWaitSub;
-    bufferingWaitSub = player.stream.buffering.listen((value) {
-      if (!completer.isCompleted && value == false) {
-        completer.complete();
-      }
-    });
     try {
-      await completer.future.timeout(const Duration(seconds: 8));
-    } catch (_) {
-      // Keep seeking even if buffering status is delayed.
+      final streamType = _getStreamType(widget.streamUrl);
+
+      if (streamType == 'mkv' || streamType == 'avi') {
+        // For MKV/AVI: reopen then seek after first frame appears
+        await player.open(
+          Media(widget.streamUrl, httpHeaders: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+            'Connection': 'keep-alive',
+          }),
+          play: true,
+        );
+
+        // Wait for video to actually be ready using stream events
+        final readyCompleter = Completer<void>();
+        StreamSubscription? sub;
+        sub = player.stream.videoParams.listen((p) {
+          if (p.w != null && p.w! > 0 && !readyCompleter.isCompleted) {
+            readyCompleter.complete();
+            sub?.cancel();
+          }
+        });
+        // Fallback: position starts moving
+        StreamSubscription? posSub;
+        posSub = player.stream.position.listen((pos) {
+          if (pos > const Duration(milliseconds: 200) &&
+              !readyCompleter.isCompleted) {
+            readyCompleter.complete();
+            posSub?.cancel();
+            sub?.cancel();
+          }
+        });
+
+        await readyCompleter.future.timeout(
+          const Duration(seconds: 12),
+          onTimeout: () {
+            sub?.cancel();
+            posSub?.cancel();
+          },
+        );
+
+        // Now seek — video is ready
+        await player.seek(target);
+        await Future<void>.delayed(const Duration(milliseconds: 300));
+        if (!player.state.playing) await player.play();
+      } else {
+        // For mp4, m3u8, ts: simple pause → seek → play
+        await player.pause();
+        await player.seek(target);
+        await Future<void>.delayed(const Duration(milliseconds: 200));
+        await player.play();
+      }
+    } catch (e) {
+      debugPrint('[MoviePlayer] seekSmart error: $e');
     } finally {
-      await bufferingWaitSub.cancel();
+      if (mounted) setState(() => _isSeeking = false);
     }
   }
 
-  void _updateBufferPercent() {
-    if (_duration.inMilliseconds <= 0) {
-      _bufferPercent = 0;
-      return;
-    }
-    _bufferPercent = (_buffered.inMilliseconds / _duration.inMilliseconds * 100).clamp(0, 100).toDouble();
-  }
-
-  void _handlePlaybackError(String message) {
-    _initialOpenTimeout?.cancel();
-    if (!mounted) return;
-    setState(() {
-      _showError = true;
-      _errorMessage = message;
-    });
+  int get _bufferPercent {
+    if (_totalDuration.inMilliseconds <= 0) return 0;
+    return (_buffered.inMilliseconds / _totalDuration.inMilliseconds * 100).clamp(0, 100).toInt();
   }
 
   Future<void> _retryOpen() async {
-    final resumeAt = _position > Duration.zero ? _position : null;
-    await _open(startAt: resumeAt);
+    if (mounted) setState(() => _hasError = false);
+    await player.open(_media(), play: true);
   }
 
   Future<void> _saveWatchProgress() async {
-    final durationMs = _duration.inMilliseconds;
+    final durationMs = _totalDuration.inMilliseconds;
     final positionMs = _position.inMilliseconds;
     if (durationMs <= 0 || positionMs < 0) return;
 
@@ -334,7 +325,6 @@ class _MoviePlayerScreenState extends State<MoviePlayerScreen> {
   void dispose() {
     _overlayTimer?.cancel();
     _saveTimer?.cancel();
-    _initialOpenTimeout?.cancel();
     _saveWatchProgress();
     _positionSub?.cancel();
     _durationSub?.cancel();
@@ -351,8 +341,8 @@ class _MoviePlayerScreenState extends State<MoviePlayerScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final maxMs = _duration.inMilliseconds > 0 ? _duration.inMilliseconds.toDouble() : 1.0;
-    final positionMs = _position.inMilliseconds.clamp(0, _duration.inMilliseconds).toDouble();
+    final maxMs = _totalDuration.inMilliseconds > 0 ? _totalDuration.inMilliseconds.toDouble() : 1.0;
+    final positionMs = _position.inMilliseconds.clamp(0, _totalDuration.inMilliseconds).toDouble();
     final audioTracks = _tracks.audio;
     final subtitleTracks = _tracks.subtitle;
 
@@ -395,7 +385,7 @@ class _MoviePlayerScreenState extends State<MoviePlayerScreen> {
                         borderRadius: BorderRadius.circular(999),
                       ),
                       child: Text(
-                        'Buffering ${_bufferPercent.toStringAsFixed(0)}%',
+                        'Buffering $_bufferPercent%',
                         style: const TextStyle(
                           color: Colors.white,
                           fontSize: 13,
@@ -404,7 +394,7 @@ class _MoviePlayerScreenState extends State<MoviePlayerScreen> {
                     ),
                   ),
                 ),
-              if (_showError)
+              if (_hasError)
                 Positioned.fill(
                   child: ColoredBox(
                     color: Colors.black54,
@@ -418,7 +408,7 @@ class _MoviePlayerScreenState extends State<MoviePlayerScreen> {
                             borderRadius: BorderRadius.circular(12),
                           ),
                           child: Text(
-                            _errorMessage,
+                            'Unable to play this stream. Tap to retry.',
                             textAlign: TextAlign.center,
                             style: const TextStyle(color: Colors.white),
                           ),
@@ -473,7 +463,7 @@ class _MoviePlayerScreenState extends State<MoviePlayerScreen> {
                             Row(
                               children: [
                                 Text(
-                                  '${_format(_position)} / ${_format(_duration)}',
+                                  '${_format(_position)} / ${_format(_totalDuration)}',
                                   style: const TextStyle(color: Colors.white70),
                                 ),
                                 const Spacer(),
