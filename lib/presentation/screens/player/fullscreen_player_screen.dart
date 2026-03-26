@@ -61,6 +61,11 @@ class _FullscreenPlayerScreenState extends State<FullscreenPlayerScreen> {
   StreamSubscription? _trackSub;
   StreamSubscription? _positionSub;
   StreamSubscription? _videoParamsSub;
+  StreamSubscription? _seekResumeSub;
+  double? _sliderDragValueMs;
+  bool _seekInFlight = false;
+  Duration? _pendingSeekTarget;
+  Stopwatch? _seekSw;
 
   @override
   void initState() {
@@ -72,12 +77,24 @@ class _FullscreenPlayerScreenState extends State<FullscreenPlayerScreen> {
   }
 
   Future<void> _open() async {
+    PerformanceLogger.log(
+      'play_button_to_open_start',
+      widget.args.triggerElapsed,
+      details: widget.args.title,
+    );
+    final openStart = Stopwatch()..start();
     await _playerService.openMedia(
       Media(widget.args.streamUrl, httpHeaders: const {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
         'Connection': 'keep-alive',
       }),
+      sourceUrl: widget.args.streamUrl,
       startAt: widget.args.startAt,
+    );
+    PerformanceLogger.log(
+      'player_open_started_to_open_complete',
+      openStart.elapsed,
+      details: widget.args.title,
     );
   }
 
@@ -98,6 +115,11 @@ class _FullscreenPlayerScreenState extends State<FullscreenPlayerScreen> {
     });
     _videoParamsSub = _playerService.player.stream.videoParams.listen((event) {
       if (event.w != null && event.w! > 0) {
+        PerformanceLogger.log(
+          'player_open_start_to_first_frame',
+          _openSw.elapsed,
+          details: widget.args.title,
+        );
         PerformanceLogger.log(
           widget.args.startAt == null ? 'play_to_first_frame' : 'resume_to_first_frame',
           _openSw.elapsed + widget.args.triggerElapsed,
@@ -148,6 +170,7 @@ class _FullscreenPlayerScreenState extends State<FullscreenPlayerScreen> {
     _trackSub?.cancel();
     _positionSub?.cancel();
     _videoParamsSub?.cancel();
+    _seekResumeSub?.cancel();
     super.dispose();
   }
 
@@ -198,16 +221,22 @@ class _FullscreenPlayerScreenState extends State<FullscreenPlayerScreen> {
                               final position = snapshot.data ?? Duration.zero;
                               final duration = player.state.duration;
                               final totalMs = duration.inMilliseconds <= 0 ? 1 : duration.inMilliseconds;
+                              final effectiveSliderValue = (_sliderDragValueMs ?? position.inMilliseconds.toDouble()).clamp(0.0, totalMs.toDouble());
                               return Column(
                                 children: [
                                   Slider(
-                                    value: position.inMilliseconds.clamp(0, totalMs).toDouble(),
+                                    value: effectiveSliderValue,
                                     min: 0,
                                     max: totalMs.toDouble(),
-                                    onChanged: (value) async {
-                                      final sw = Stopwatch()..start();
-                                      await player.seek(Duration(milliseconds: value.toInt()));
-                                      PerformanceLogger.log('seek_to_playback_resumed', sw.elapsed, details: widget.args.title);
+                                    onChangeStart: (value) {
+                                      _sliderDragValueMs = value;
+                                    },
+                                    onChanged: (value) {
+                                      setState(() => _sliderDragValueMs = value);
+                                    },
+                                    onChangeEnd: (value) async {
+                                      setState(() => _sliderDragValueMs = null);
+                                      await _seekTo(Duration(milliseconds: value.toInt()));
                                     },
                                   ),
                                   Padding(
@@ -258,6 +287,41 @@ class _FullscreenPlayerScreenState extends State<FullscreenPlayerScreen> {
         ),
       ),
     );
+  }
+
+  Future<void> _seekTo(Duration target) async {
+    if (_seekInFlight) return;
+    _seekInFlight = true;
+    _pendingSeekTarget = target;
+    _seekSw = Stopwatch()..start();
+    PerformanceLogger.log('seek_requested', Duration.zero, details: '${widget.args.title} -> ${_fmt(target)}');
+    await _playerService.player.seek(target);
+    PerformanceLogger.log('seek_command_sent', _seekSw!.elapsed, details: widget.args.title);
+
+    _seekResumeSub?.cancel();
+    _seekResumeSub = _playerService.player.stream.position.listen((position) {
+      final pending = _pendingSeekTarget;
+      if (pending == null) return;
+      final deltaMs = (position - pending).inMilliseconds.abs();
+      if (deltaMs > 1500) return;
+
+      final elapsed = _seekSw?.elapsed ?? Duration.zero;
+      PerformanceLogger.log('playback_resumed_after_seek', elapsed, details: widget.args.title);
+      PerformanceLogger.log('total_seek_latency', elapsed, details: widget.args.title);
+      _pendingSeekTarget = null;
+      _seekInFlight = false;
+      _seekResumeSub?.cancel();
+    });
+
+    Future<void>.delayed(const Duration(seconds: 8), () {
+      if (_pendingSeekTarget != null) {
+        final elapsed = _seekSw?.elapsed ?? const Duration(seconds: 8);
+        PerformanceLogger.log('seek_resume_timeout', elapsed, details: widget.args.title);
+        _pendingSeekTarget = null;
+        _seekInFlight = false;
+        _seekResumeSub?.cancel();
+      }
+    });
   }
 
   Future<void> _openAudioMenu() async {
