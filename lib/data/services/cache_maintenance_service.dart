@@ -1,3 +1,5 @@
+import 'package:flutter/painting.dart';
+
 import '../datasources/remote/xtream_api.dart';
 import 'persistent_player_service.dart';
 import 'watch_progress_service.dart';
