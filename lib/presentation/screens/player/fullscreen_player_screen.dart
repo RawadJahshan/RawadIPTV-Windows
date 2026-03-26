@@ -64,8 +64,9 @@ class _FullscreenPlayerScreenState extends State<FullscreenPlayerScreen> {
   StreamSubscription? _seekResumeSub;
   double? _sliderDragValueMs;
   bool _seekInFlight = false;
-  Duration? _pendingSeekTarget;
+  Duration? _queuedSeekTarget;
   Stopwatch? _seekSw;
+  int _seekToken = 0;
   bool _isStoppingForClose = false;
   bool _didHandleClose = false;
   bool _isOpening = true;
@@ -371,36 +372,61 @@ class _FullscreenPlayerScreenState extends State<FullscreenPlayerScreen> {
   }
 
   Future<void> _seekTo(Duration target) async {
-    if (_seekInFlight) return;
+    if (_seekInFlight) {
+      _queuedSeekTarget = target;
+      return;
+    }
     _seekInFlight = true;
-    _pendingSeekTarget = target;
+    _queuedSeekTarget = null;
+    final currentTarget = target;
+    final seekToken = ++_seekToken;
     _seekSw = Stopwatch()..start();
     PerformanceLogger.log('seek_requested', Duration.zero, details: '${widget.args.title} -> ${_fmt(target)}');
-    await _playerService.player.seek(target);
-    PerformanceLogger.log('seek_command_sent', _seekSw!.elapsed, details: widget.args.title);
+    try {
+      await _playerService.player.seek(target);
+      PerformanceLogger.log('seek_command_sent', _seekSw!.elapsed, details: widget.args.title);
+    } catch (error) {
+      _seekInFlight = false;
+      _seekResumeSub?.cancel();
+      debugPrint('[FullscreenPlayerScreen] seek failed for ${widget.args.title}: $error');
+      final queued = _queuedSeekTarget;
+      _queuedSeekTarget = null;
+      if (queued != null) {
+        unawaited(_seekTo(queued));
+      }
+      return;
+    }
 
     _seekResumeSub?.cancel();
     _seekResumeSub = _playerService.player.stream.position.listen((position) {
-      final pending = _pendingSeekTarget;
-      if (pending == null) return;
-      final deltaMs = (position - pending).inMilliseconds.abs();
+      if (seekToken != _seekToken) return;
+      final deltaMs = (position - currentTarget).inMilliseconds.abs();
       if (deltaMs > 1500) return;
 
       final elapsed = _seekSw?.elapsed ?? Duration.zero;
       PerformanceLogger.log('playback_resumed_after_seek', elapsed, details: widget.args.title);
       PerformanceLogger.log('total_seek_latency', elapsed, details: widget.args.title);
-      _pendingSeekTarget = null;
       _seekInFlight = false;
       _seekResumeSub?.cancel();
+      final queued = _queuedSeekTarget;
+      _queuedSeekTarget = null;
+      if (queued != null) {
+        unawaited(_seekTo(queued));
+      }
     });
 
     Future<void>.delayed(const Duration(seconds: 8), () {
-      if (_pendingSeekTarget != null) {
+      if (seekToken != _seekToken) return;
+      if (_seekInFlight) {
         final elapsed = _seekSw?.elapsed ?? const Duration(seconds: 8);
         PerformanceLogger.log('seek_resume_timeout', elapsed, details: widget.args.title);
-        _pendingSeekTarget = null;
         _seekInFlight = false;
         _seekResumeSub?.cancel();
+        final queued = _queuedSeekTarget;
+        _queuedSeekTarget = null;
+        if (queued != null) {
+          unawaited(_seekTo(queued));
+        }
       }
     });
   }
@@ -414,7 +440,7 @@ class _FullscreenPlayerScreenState extends State<FullscreenPlayerScreen> {
                   title: Text(track.title ?? track.language ?? 'Audio ${track.id}'),
                   trailing: _selectedAudio?.id == track.id ? const Icon(Icons.check) : null,
                   onTap: () async {
-                    await _playerService.player.setAudioTrack(track);
+                    await _switchTrackPreservePosition(() => _playerService.player.setAudioTrack(track));
                     if (mounted) Navigator.pop(context);
                   },
                 ))
@@ -431,7 +457,9 @@ class _FullscreenPlayerScreenState extends State<FullscreenPlayerScreen> {
           ListTile(
             title: const Text('Off'),
             onTap: () async {
-              await _playerService.player.setSubtitleTrack(SubtitleTrack.no());
+              await _switchTrackPreservePosition(
+                () => _playerService.player.setSubtitleTrack(SubtitleTrack.no()),
+              );
               if (mounted) Navigator.pop(context);
             },
           ),
@@ -439,7 +467,7 @@ class _FullscreenPlayerScreenState extends State<FullscreenPlayerScreen> {
                 title: Text(track.title ?? track.language ?? 'Subtitle ${track.id}'),
                 trailing: _selectedSubtitle?.id == track.id ? const Icon(Icons.check) : null,
                 onTap: () async {
-                  await _playerService.player.setSubtitleTrack(track);
+                  await _switchTrackPreservePosition(() => _playerService.player.setSubtitleTrack(track));
                   if (mounted) Navigator.pop(context);
                 },
               )),
@@ -453,5 +481,16 @@ class _FullscreenPlayerScreenState extends State<FullscreenPlayerScreen> {
     final m = d.inMinutes.remainder(60).toString().padLeft(2, '0');
     final s = d.inSeconds.remainder(60).toString().padLeft(2, '0');
     return h > 0 ? '$h:$m:$s' : '${d.inMinutes}:$s';
+  }
+
+  Future<void> _switchTrackPreservePosition(Future<void> Function() switchTrack) async {
+    final before = _playerService.player.state.position;
+    await switchTrack();
+    await Future<void>.delayed(const Duration(milliseconds: 120));
+    final after = _playerService.player.state.position;
+    final driftMs = (after - before).inMilliseconds.abs();
+    if (driftMs > 1500) {
+      await _playerService.player.seek(before);
+    }
   }
 }
