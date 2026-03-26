@@ -24,11 +24,24 @@ class PersistentPlayerService {
     ),
   );
 
-  Future<void> openMedia(Media media, {Duration? startAt}) async {
-    await player.stop();
+  String? _lastOpenedUrl;
+
+  Future<void> openMedia(
+    Media media, {
+    required String sourceUrl,
+    Duration? startAt,
+  }) async {
+    final requestedUrl = sourceUrl;
+    final shouldReopen = _lastOpenedUrl != requestedUrl;
+
+    if (shouldReopen) {
+      await player.stop();
+    }
+
     await player.open(media, play: true);
     if (startAt != null && startAt > Duration.zero) {
       await player.seek(startAt);
     }
+    _lastOpenedUrl = requestedUrl;
   }
 }

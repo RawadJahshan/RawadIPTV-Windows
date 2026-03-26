@@ -12,6 +12,12 @@ class SafeParsing {
     return const <dynamic>[];
   }
 
+  static List<dynamic> asListFlexible(dynamic value) {
+    if (value is List) return value;
+    if (value is Map) return value.values.toList();
+    return const <dynamic>[];
+  }
+
   static int asInt(dynamic value, {int fallback = 0}) {
     if (value is int) return value;
     if (value is num) return value.toInt();
@@ -49,6 +55,14 @@ class SafeParsing {
     }
 
     if (text.isEmpty) return null;
+
+    if (text.contains(',')) {
+      for (final piece in text.split(',')) {
+        final normalized = normalizeBackdropUrl(piece.trim());
+        if (normalized != null) return normalized;
+      }
+      return null;
+    }
 
     final uri = Uri.tryParse(text);
     final hasValidScheme = uri != null && (uri.scheme == 'http' || uri.scheme == 'https');

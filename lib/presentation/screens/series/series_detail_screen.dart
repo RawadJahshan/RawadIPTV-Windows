@@ -62,7 +62,7 @@ class _SeriesDetailScreenState extends State<SeriesDetailScreen> {
     if (rawEpisodes is Map) {
       for (final entry in rawEpisodes.entries) {
         final seasonKey = SafeParsing.asString(entry.key);
-        final episodeItems = SafeParsing.asList(entry.value);
+        final episodeItems = SafeParsing.asListFlexible(entry.value);
         final episodes = <Episode>[];
 
         for (final item in episodeItems) {
@@ -82,6 +82,25 @@ class _SeriesDetailScreenState extends State<SeriesDetailScreen> {
         if (episodes.isNotEmpty) {
           output[seasonKey] = episodes;
         }
+      }
+    } else if (rawEpisodes is List) {
+      for (final item in rawEpisodes) {
+        final rawEpisode = SafeParsing.asMap(item);
+        if (rawEpisode.isEmpty) continue;
+        final info = SafeParsing.asMap(rawEpisode['info']);
+        final seasonKey = SafeParsing.asString(
+          rawEpisode['season'] ?? rawEpisode['season_num'] ?? info['season'],
+          fallback: '1',
+        );
+        final episode = Episode.fromJson(
+          rawEpisode,
+          widget.xtreamApi.serverUrl,
+          widget.xtreamApi.username,
+          widget.xtreamApi.password,
+          seasonKey,
+        );
+        if (episode.id <= 0) continue;
+        output.putIfAbsent(seasonKey, () => <Episode>[]).add(episode);
       }
     }
 
@@ -113,6 +132,7 @@ class _SeriesDetailScreenState extends State<SeriesDetailScreen> {
 
   Future<void> _playEpisode(Episode episode) async {
     final sw = Stopwatch()..start();
+    PerformanceLogger.log('play_button_pressed', Duration.zero, details: episode.title);
     Duration? startAt;
     final progress = _progressByEpisode[episode.id];
     final positionMs = int.tryParse('${progress?['position_ms']}') ?? 0;
@@ -189,15 +209,6 @@ class _SeriesDetailScreenState extends State<SeriesDetailScreen> {
               ),
             ),
           Positioned.fill(child: Container(color: Colors.black.withValues(alpha: 0.78))),
-          SafeArea(
-            child: Align(
-              alignment: Alignment.topLeft,
-              child: Padding(
-                padding: const EdgeInsets.all(20),
-                child: _SeriesBackButton(onPressed: () => Navigator.maybePop(context)),
-              ),
-            ),
-          ),
           SafeArea(
             child: ListView(
               padding: const EdgeInsets.all(24),
@@ -312,6 +323,15 @@ class _SeriesDetailScreenState extends State<SeriesDetailScreen> {
               ],
             ),
           ),
+          SafeArea(
+            child: Align(
+              alignment: Alignment.topLeft,
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: _SeriesBackButton(onPressed: () => Navigator.maybePop(context)),
+              ),
+            ),
+          ),
         ],
       ),
     );
@@ -332,16 +352,35 @@ class _SeriesBackButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.45),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: Colors.white24),
-      ),
-      child: IconButton(
-        tooltip: 'Back',
-        onPressed: onPressed,
-        icon: const Icon(Icons.arrow_back_rounded),
+    return Material(
+      color: Colors.transparent,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: Colors.black.withValues(alpha: 0.72),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.white54),
+          boxShadow: const [
+            BoxShadow(color: Color(0x66000000), blurRadius: 10, offset: Offset(0, 4)),
+          ],
+        ),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(12),
+          onTap: onPressed,
+          child: const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.arrow_back_rounded, color: Colors.white),
+                SizedBox(width: 6),
+                Text(
+                  'Back',
+                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
