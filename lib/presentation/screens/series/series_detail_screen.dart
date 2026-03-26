@@ -25,6 +25,7 @@ class _SeriesDetailScreenState extends State<SeriesDetailScreen> {
   Map<String, List<Episode>> _episodesBySeason = {};
   final Map<int, Map<String, dynamic>?> _progressByEpisode = {};
   String? _selectedSeason;
+  bool _isLaunchingPlayer = false;
 
   @override
   void initState() {
@@ -131,6 +132,8 @@ class _SeriesDetailScreenState extends State<SeriesDetailScreen> {
   }
 
   Future<void> _playEpisode(Episode episode) async {
+    if (_isLaunchingPlayer) return;
+    setState(() => _isLaunchingPlayer = true);
     final sw = Stopwatch()..start();
     PerformanceLogger.log('play_button_pressed', Duration.zero, details: episode.title);
     Duration? startAt;
@@ -154,28 +157,36 @@ class _SeriesDetailScreenState extends State<SeriesDetailScreen> {
       if (resume) startAt = Duration(milliseconds: positionMs);
     }
 
-    if (!mounted) return;
-    await Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => FullscreenPlayerScreen(
-          args: FullscreenPlayerArgs(
-            title: episode.title,
-            streamUrl: episode.streamUrl,
-            type: PlaybackType.episode,
-            contentId: episode.id,
-            seriesId: widget.series.id,
-            seriesName: widget.series.name,
-            seasonNumber: episode.season,
-            episodeNumber: episode.episodeNum,
-            startAt: startAt,
-            triggerElapsed: sw.elapsed,
+    try {
+      if (!mounted) return;
+      await Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => FullscreenPlayerScreen(
+            args: FullscreenPlayerArgs(
+              title: episode.title,
+              streamUrl: episode.streamUrl,
+              type: PlaybackType.episode,
+              contentId: episode.id,
+              seriesId: widget.series.id,
+              seriesName: widget.series.name,
+              seasonNumber: episode.season,
+              episodeNumber: episode.episodeNum,
+              startAt: startAt,
+              triggerElapsed: sw.elapsed,
+            ),
           ),
         ),
-      ),
-    );
-    _progressByEpisode[episode.id] = await WatchProgressService.getEpisodeProgress(episode.id);
-    if (mounted) setState(() {});
+      );
+      _progressByEpisode[episode.id] = await WatchProgressService.getEpisodeProgress(episode.id);
+      if (mounted) setState(() {});
+    } finally {
+      if (mounted) {
+        setState(() => _isLaunchingPlayer = false);
+      } else {
+        _isLaunchingPlayer = false;
+      }
+    }
   }
 
   Future<void> _toggleFavorite() async {
@@ -315,8 +326,14 @@ class _SeriesDetailScreenState extends State<SeriesDetailScreen> {
                             Text(completed ? 'Completed' : 'Remaining ${_format(Duration(milliseconds: duration - position))}'),
                         ],
                       ),
-                      trailing: const Icon(Icons.play_arrow),
-                      onTap: () => _playEpisode(episode),
+                      trailing: _isLaunchingPlayer
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.play_arrow),
+                      onTap: _isLaunchingPlayer ? null : () => _playEpisode(episode),
                     ),
                   );
                 }),

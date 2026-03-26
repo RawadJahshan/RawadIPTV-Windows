@@ -3,12 +3,15 @@ import 'package:flutter/material.dart';
 
 class XtreamApi {
   late final Dio _dio;
+  static final Set<XtreamApi> _instances = <XtreamApi>{};
+  final Map<String, dynamic> _memoryResponseCache = <String, dynamic>{};
 
   late String _serverUrl;
   late String _username;
   late String _password;
 
   XtreamApi() {
+    _instances.add(this);
     _dio = Dio(BaseOptions(
       connectTimeout: const Duration(seconds: 10),
       receiveTimeout: const Duration(seconds: 60),
@@ -52,6 +55,13 @@ class XtreamApi {
   String get _baseUrl =>
       '$_serverUrl/player_api.php?username=$_username&password=$_password';
 
+  static void clearAllInMemoryCaches() {
+    for (final instance in _instances) {
+      instance._memoryResponseCache.clear();
+    }
+    debugPrint('XtreamApi: Cleared in-memory metadata/list caches for ${_instances.length} instance(s)');
+  }
+
   // ─── Auth ────────────────────────────────────────────────
   Future<Map<String, dynamic>> authenticate(
     String serverUrl,
@@ -82,10 +92,7 @@ class XtreamApi {
   // ─── Live TV ─────────────────────────────────────────────
   Future<List<Map<String, dynamic>>> getLiveCategories() async {
     try {
-      final response = await _dio.get(
-        '$_baseUrl&action=get_live_categories',
-      );
-      return _parseList(response.data);
+      return await _getListWithCache('$_baseUrl&action=get_live_categories');
     } catch (e) {
       debugPrint('getLiveCategories error: $e');
       return [];
@@ -98,13 +105,12 @@ class XtreamApi {
     try {
       var url = '$_baseUrl&action=get_live_streams';
       if (categoryId != null) url += '&category_id=$categoryId';
-      final response = await _dio.get(
+      return await _getListWithCache(
         url,
         options: Options(
           receiveTimeout: const Duration(seconds: 60),
         ),
       );
-      return _parseList(response.data);
     } catch (e) {
       debugPrint('getLiveStreams error: $e');
       return [];
@@ -114,10 +120,7 @@ class XtreamApi {
   // ─── Movies ──────────────────────────────────────────────
   Future<List<Map<String, dynamic>>> getMovieCategories() async {
     try {
-      final response = await _dio.get(
-        '$_baseUrl&action=get_vod_categories',
-      );
-      return _parseList(response.data);
+      return await _getListWithCache('$_baseUrl&action=get_vod_categories');
     } catch (e) {
       debugPrint('getMovieCategories error: $e');
       return [];
@@ -130,13 +133,12 @@ class XtreamApi {
     try {
       var url = '$_baseUrl&action=get_vod_streams';
       if (categoryId != null) url += '&category_id=$categoryId';
-      final response = await _dio.get(
+      return await _getListWithCache(
         url,
         options: Options(
           receiveTimeout: const Duration(seconds: 120),
         ),
       );
-      return _parseList(response.data);
     } catch (e) {
       debugPrint('getMovies error: $e');
       return [];
@@ -145,10 +147,7 @@ class XtreamApi {
 
   Future<Map<String, dynamic>> getMovieInfo(int movieId) async {
     try {
-      final response = await _dio.get(
-        '$_baseUrl&action=get_vod_info&vod_id=$movieId',
-      );
-      return _parseMap(response.data);
+      return await _getMapWithCache('$_baseUrl&action=get_vod_info&vod_id=$movieId');
     } catch (e) {
       debugPrint('getMovieInfo error: $e');
       return {};
@@ -158,10 +157,7 @@ class XtreamApi {
   // ─── Series ──────────────────────────────────────────────
   Future<List<Map<String, dynamic>>> getSeriesCategories() async {
     try {
-      final response = await _dio.get(
-        '$_baseUrl&action=get_series_categories',
-      );
-      return _parseList(response.data);
+      return await _getListWithCache('$_baseUrl&action=get_series_categories');
     } catch (e) {
       debugPrint('getSeriesCategories error: $e');
       return [];
@@ -174,13 +170,12 @@ class XtreamApi {
     try {
       var url = '$_baseUrl&action=get_series';
       if (categoryId != null) url += '&category_id=$categoryId';
-      final response = await _dio.get(
+      return await _getListWithCache(
         url,
         options: Options(
           receiveTimeout: const Duration(seconds: 120),
         ),
       );
-      return _parseList(response.data);
     } catch (e) {
       debugPrint('getSeries error: $e');
       return [];
@@ -189,13 +184,12 @@ class XtreamApi {
 
   Future<Map<String, dynamic>> getSeriesInfo(int seriesId) async {
     try {
-      final response = await _dio.get(
+      return await _getMapWithCache(
         '$_baseUrl&action=get_series_info&series_id=$seriesId',
         options: Options(
           receiveTimeout: const Duration(seconds: 60),
         ),
       );
-      return _parseMap(response.data);
     } catch (e) {
       debugPrint('getSeriesInfo error: $e');
       return {};
@@ -225,5 +219,35 @@ class XtreamApi {
     if (data is Map<String, dynamic>) return data;
     if (data is Map) return Map<String, dynamic>.from(data);
     return {};
+  }
+
+  Future<List<Map<String, dynamic>>> _getListWithCache(
+    String url, {
+    Options? options,
+  }) async {
+    final cached = _memoryResponseCache[url];
+    if (cached is List<Map<String, dynamic>>) {
+      return cached.map((item) => Map<String, dynamic>.from(item)).toList();
+    }
+
+    final response = await _dio.get(url, options: options);
+    final parsed = _parseList(response.data);
+    _memoryResponseCache[url] = parsed.map((item) => Map<String, dynamic>.from(item)).toList();
+    return parsed;
+  }
+
+  Future<Map<String, dynamic>> _getMapWithCache(
+    String url, {
+    Options? options,
+  }) async {
+    final cached = _memoryResponseCache[url];
+    if (cached is Map<String, dynamic>) {
+      return Map<String, dynamic>.from(cached);
+    }
+
+    final response = await _dio.get(url, options: options);
+    final parsed = _parseMap(response.data);
+    _memoryResponseCache[url] = Map<String, dynamic>.from(parsed);
+    return parsed;
   }
 }

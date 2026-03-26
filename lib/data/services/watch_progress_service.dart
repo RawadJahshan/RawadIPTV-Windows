@@ -116,4 +116,10 @@ class WatchProgressService {
     }
     return latestBySeries.values.toList();
   }
+
+  static Future<void> clearAllProgress() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_movieKey);
+    await prefs.remove(_episodeKey);
+  }
 }

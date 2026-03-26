@@ -7,6 +7,7 @@ import '../profiles/profiles_screen.dart';
 // Add these imports at top
 import '../movies/movies_categories_screen.dart';
 import '../series/series_categories_screen.dart';
+import '../settings/settings_screen.dart';
 
 
 
@@ -174,7 +175,14 @@ buildTile(
                             icon: Icons.settings,
                             startColor: const Color(0xFF06beb6),
                             endColor: const Color(0xFF48b1bf),
-                            onTap: () {},
+                            onTap: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => const SettingsScreen(),
+                                ),
+                              );
+                            },
                           ),
                         ],
                       ),
@@ -289,5 +297,3 @@ class _DateTimeWidgetState extends State<_DateTimeWidget> {
     );
   }
 }
-
-

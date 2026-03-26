@@ -22,6 +22,7 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
   bool _isFavorite = false;
   Map<String, dynamic>? _richInfo;
   Map<String, dynamic>? _progress;
+  bool _isLaunchingPlayer = false;
 
   @override
   void initState() {
@@ -57,6 +58,8 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
   }
 
   Future<void> _play() async {
+    if (_isLaunchingPlayer) return;
+    setState(() => _isLaunchingPlayer = true);
     final sw = Stopwatch()..start();
     PerformanceLogger.log('play_button_pressed', Duration.zero, details: widget.movie.name);
     Duration? startAt;
@@ -81,26 +84,34 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
       }
     }
 
-    if (!mounted) return;
-    await Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => FullscreenPlayerScreen(
-          args: FullscreenPlayerArgs(
-            title: widget.movie.name,
-            streamUrl: widget.movie.streamUrl,
-            type: PlaybackType.movie,
-            contentId: widget.movie.id,
-            poster: widget.movie.logoUrl,
-            startAt: startAt,
-            triggerElapsed: sw.elapsed,
+    try {
+      if (!mounted) return;
+      await Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => FullscreenPlayerScreen(
+            args: FullscreenPlayerArgs(
+              title: widget.movie.name,
+              streamUrl: widget.movie.streamUrl,
+              type: PlaybackType.movie,
+              contentId: widget.movie.id,
+              poster: widget.movie.logoUrl,
+              startAt: startAt,
+              triggerElapsed: sw.elapsed,
+            ),
           ),
         ),
-      ),
-    );
+      );
 
-    _progress = await WatchProgressService.getMovieProgress(widget.movie.id);
-    if (mounted) setState(() {});
+      _progress = await WatchProgressService.getMovieProgress(widget.movie.id);
+      if (mounted) setState(() {});
+    } finally {
+      if (mounted) {
+        setState(() => _isLaunchingPlayer = false);
+      } else {
+        _isLaunchingPlayer = false;
+      }
+    }
   }
 
   @override
@@ -159,7 +170,11 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
                         const SizedBox(height: 20),
                         Row(
                           children: [
-                            FilledButton.icon(onPressed: _play, icon: const Icon(Icons.play_arrow), label: const Text('Play Movie')),
+                            FilledButton.icon(
+                              onPressed: _isLaunchingPlayer ? null : _play,
+                              icon: const Icon(Icons.play_arrow),
+                              label: Text(_isLaunchingPlayer ? 'Opening...' : 'Play Movie'),
+                            ),
                             const SizedBox(width: 12),
                             OutlinedButton.icon(
                               onPressed: _toggleFavorite,
