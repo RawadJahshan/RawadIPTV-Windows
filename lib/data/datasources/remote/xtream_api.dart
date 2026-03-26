@@ -108,6 +108,45 @@ class XtreamApi {
     }
   }
 
+  Future<List<Map<String, dynamic>>> getVodCategories() async {
+    try {
+      return await _getListWithCache('$_baseUrl&action=get_vod_categories');
+    } catch (e) {
+      debugPrint('getVodCategories error: $e');
+      return [];
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> getVodStreams({int? categoryId}) async {
+    try {
+      var url = '$_baseUrl&action=get_vod_streams';
+      if (categoryId != null) {
+        url += '&category_id=$categoryId';
+      }
+      return await _getListWithCache(
+        url,
+        options: Options(receiveTimeout: const Duration(seconds: 60)),
+      );
+    } catch (e) {
+      debugPrint('getVodStreams error: $e');
+      return [];
+    }
+  }
+
+  Future<Map<String, dynamic>> getVodInfo(int vodId) async {
+    final url = '$_baseUrl&action=get_vod_info&vod_id=$vodId';
+    try {
+      final response = await _dio.get(url);
+      if (response.data is Map) {
+        return Map<String, dynamic>.from(response.data as Map);
+      }
+      return <String, dynamic>{};
+    } catch (e) {
+      debugPrint('getVodInfo error: $e');
+      return <String, dynamic>{};
+    }
+  }
+
   List<Map<String, dynamic>> _parseList(dynamic data) {
     if (data == null) return [];
     if (data is List) {

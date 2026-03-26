@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../live_tv/live_tv_categories_screen.dart';
+import '../movies/movies_screen.dart';
 import '../../../data/datasources/remote/xtream_api.dart';
 import '../profiles/profiles_screen.dart';
 import '../settings/settings_screen.dart';
@@ -105,6 +106,20 @@ class HomeDashboard extends StatelessWidget {
                                 context,
                                 MaterialPageRoute(
                                   builder: (_) => LiveTvCategoriesScreen(xtreamApi: xtreamApi),
+                                ),
+                              );
+                            },
+                          ),
+                          buildTile(
+                            label: 'MOVIES',
+                            icon: Icons.movie,
+                            startColor: const Color(0xFFf7971e),
+                            endColor: const Color(0xFFffd200),
+                            onTap: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => MoviesScreen(xtreamApi: xtreamApi),
                                 ),
                               );
                             },
