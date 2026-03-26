@@ -62,7 +62,7 @@ class _SeriesDetailScreenState extends State<SeriesDetailScreen> {
     if (rawEpisodes is Map) {
       for (final entry in rawEpisodes.entries) {
         final seasonKey = SafeParsing.asString(entry.key);
-        final episodeItems = SafeParsing.asList(entry.value);
+        final episodeItems = SafeParsing.asListFlexible(entry.value);
         final episodes = <Episode>[];
 
         for (final item in episodeItems) {
@@ -82,6 +82,25 @@ class _SeriesDetailScreenState extends State<SeriesDetailScreen> {
         if (episodes.isNotEmpty) {
           output[seasonKey] = episodes;
         }
+      }
+    } else if (rawEpisodes is List) {
+      for (final item in rawEpisodes) {
+        final rawEpisode = SafeParsing.asMap(item);
+        if (rawEpisode.isEmpty) continue;
+        final info = SafeParsing.asMap(rawEpisode['info']);
+        final seasonKey = SafeParsing.asString(
+          rawEpisode['season'] ?? rawEpisode['season_num'] ?? info['season'],
+          fallback: '1',
+        );
+        final episode = Episode.fromJson(
+          rawEpisode,
+          widget.xtreamApi.serverUrl,
+          widget.xtreamApi.username,
+          widget.xtreamApi.password,
+          seasonKey,
+        );
+        if (episode.id <= 0) continue;
+        output.putIfAbsent(seasonKey, () => <Episode>[]).add(episode);
       }
     }
 
@@ -113,6 +132,7 @@ class _SeriesDetailScreenState extends State<SeriesDetailScreen> {
 
   Future<void> _playEpisode(Episode episode) async {
     final sw = Stopwatch()..start();
+    PerformanceLogger.log('play_button_pressed', Duration.zero, details: episode.title);
     Duration? startAt;
     final progress = _progressByEpisode[episode.id];
     final positionMs = int.tryParse('${progress?['position_ms']}') ?? 0;
