@@ -2,7 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:dart_vlc/dart_vlc.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import '../../../data/services/watch_progress_service.dart';
 import 'package:window_manager/window_manager.dart';
 
 class MoviePlayerScreen extends StatefulWidget {
@@ -10,12 +10,14 @@ class MoviePlayerScreen extends StatefulWidget {
   final String title;
   final int streamId;
   final Duration? startAt;
+  final String? poster;
 
   const MoviePlayerScreen({
     super.key,
     required this.streamUrl,
     required this.title,
     required this.streamId,
+    this.poster,
     this.startAt,
   });
 
@@ -103,18 +105,21 @@ class _MoviePlayerScreenState extends State<MoviePlayerScreen> {
       _player.seek(widget.startAt!);
     }
 
-    _progressTimer = Timer.periodic(const Duration(seconds: 5), (_) {
-      _saveProgress();
-    });
+    _progressTimer = Timer.periodic(
+      const Duration(seconds: 5), (_) => _saveProgress());
 
     _scheduleHide();
   }
 
   Future<void> _saveProgress() async {
     if (_duration.inMilliseconds <= 0) return;
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setInt('progress_pos_${widget.streamId}', _position.inMilliseconds);
-    await prefs.setInt('progress_dur_${widget.streamId}', _duration.inMilliseconds);
+    await WatchProgressService.saveProgress(
+      streamId: widget.streamId,
+      title: widget.title,
+      poster: widget.poster,
+      positionMs: _position.inMilliseconds,
+      durationMs: _duration.inMilliseconds,
+    );
   }
 
   void _scheduleHide() {

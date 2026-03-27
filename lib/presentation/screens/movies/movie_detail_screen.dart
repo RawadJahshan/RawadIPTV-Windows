@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../../data/datasources/remote/xtream_api.dart';
 import '../../../data/models/movie_item.dart';
+import '../../../data/services/watch_progress_service.dart';
 import '../player/movie_player_screen.dart';
 
 class MovieDetailScreen extends StatefulWidget {
@@ -131,21 +131,52 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
 
 
 
-  Future<void> _openMoviePlayer() async {
-    final prefs = await SharedPreferences.getInstance();
-    final savedPos = prefs.getInt('progress_pos_${widget.movie.streamId}') ?? 0;
-    final savedDur = prefs.getInt('progress_dur_${widget.movie.streamId}') ?? 0;
-    final startAt = savedPos > 0 && savedDur > 0
-        ? Duration(milliseconds: savedPos)
-        : null;
+  Future<void> _onPlayNow() async {
+    final movie = widget.movie;
+    final progress = await WatchProgressService.getProgress(movie.streamId);
 
     if (!mounted) return;
 
-    final streamUrl = widget.movie.streamUrl(
+    final streamUrl = movie.streamUrl(
       widget.xtreamApi.serverUrl,
       widget.xtreamApi.username,
       widget.xtreamApi.password,
     );
+
+    if (progress != null && progress.positionMs > 10000 && !progress.isFinished) {
+      final resume = await showDialog<bool>(
+        context: context,
+        builder: (_) => AlertDialog(
+          title: const Text('Resume Playback'),
+          content: Text('Continue from ${_formatDuration(progress.position)}?'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Start Over'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Resume'),
+            ),
+          ],
+        ),
+      );
+      if (resume == null || !mounted) return;
+
+      await Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => MoviePlayerScreen(
+            streamUrl: streamUrl,
+            title: _title,
+            streamId: movie.streamId,
+            poster: _posterUrl,
+            startAt: resume ? progress.position : null,
+          ),
+        ),
+      );
+      return;
+    }
 
     await Navigator.push(
       context,
@@ -153,11 +184,19 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
         builder: (_) => MoviePlayerScreen(
           streamUrl: streamUrl,
           title: _title,
-          streamId: widget.movie.streamId,
-          startAt: startAt,
+          streamId: movie.streamId,
+          poster: _posterUrl,
+          startAt: null,
         ),
       ),
     );
+  }
+
+  String _formatDuration(Duration d) {
+    final h = d.inHours;
+    final m = d.inMinutes.remainder(60).toString().padLeft(2, '0');
+    final s = d.inSeconds.remainder(60).toString().padLeft(2, '0');
+    return h > 0 ? '$h:$m:$s' : '${d.inMinutes}:$s';
   }
 
   @override
@@ -341,7 +380,7 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
       children: [
         Expanded(
           child: ElevatedButton.icon(
-            onPressed: _openMoviePlayer,
+            onPressed: _onPlayNow,
             style: ElevatedButton.styleFrom(
               backgroundColor: const Color(0xFF0077B6),
               disabledBackgroundColor: const Color(0xFF0077B6),
