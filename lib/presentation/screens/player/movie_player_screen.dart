@@ -50,6 +50,7 @@ class _MoviePlayerScreenState extends State<MoviePlayerScreen> {
   int _selectedSubTrack = -1;
   int _aspectRatioIndex = 0;
   bool _didResume = false;
+  bool _didRefreshTracks = false;
 
   final List<Map<String, dynamic>> _aspectRatios = [
     {'label': 'Auto', 'ratio': BoxFit.contain},
@@ -76,18 +77,6 @@ class _MoviePlayerScreenState extends State<MoviePlayerScreen> {
       autoStart: true,
     );
 
-    // Wait for tracks to be available
-    Future<void>.delayed(const Duration(seconds: 2), () {
-      if (!mounted) return;
-      setState(() {
-        _subtitleTracks = _player.subtitleTracks;
-        _audioTrackCount = _player.audioTrackCount;
-      });
-      debugPrint('[Player] subtitle tracks: '
-          '${_subtitleTracks.map((t) => t.name).toList()}');
-      debugPrint('[Player] audio tracks: $_audioTrackCount');
-    });
-
     if (widget.startAt != null && widget.startAt! > Duration.zero) {
       await Future<void>.delayed(const Duration(seconds: 2));
       _player.seek(widget.startAt!);
@@ -97,6 +86,19 @@ class _MoviePlayerScreenState extends State<MoviePlayerScreen> {
       const Duration(seconds: 5), (_) => _saveProgress());
 
     _scheduleHide();
+  }
+
+  Future<void> _refreshSubtitleTracks() async {
+    final tracks = _player.subtitleTracks;
+    final audioCount = _player.audioTrackCount;
+    debugPrint(
+      '[Player] refreshed: subs=${tracks.map((t) => '${t.id}:${t.name}').toList()} audio=$audioCount',
+    );
+    if (!mounted) return;
+    setState(() {
+      _subtitleTracks = tracks;
+      _audioTrackCount = audioCount;
+    });
   }
 
   void _attachPlayerListeners({Duration? resumeAt}) {
@@ -133,6 +135,10 @@ class _MoviePlayerScreenState extends State<MoviePlayerScreen> {
         _isPlaying = playback.isPlaying;
         _isBuffering = !playback.isPlaying && !playback.isCompleted;
       });
+      if (playback.isPlaying && !_didRefreshTracks) {
+        _didRefreshTracks = true;
+        unawaited(_refreshSubtitleTracks());
+      }
     });
   }
 
@@ -344,6 +350,12 @@ class _MoviePlayerScreenState extends State<MoviePlayerScreen> {
                                         ),
                                         overflow: TextOverflow.ellipsis,
                                       ),
+                                    ),
+                                    IconButton(
+                                      tooltip: 'Refresh Tracks',
+                                      icon: const Icon(Icons.refresh,
+                                          color: Colors.white),
+                                      onPressed: _refreshSubtitleTracks,
                                     ),
                                     IconButton(
                                       icon: const Icon(Icons.close,
