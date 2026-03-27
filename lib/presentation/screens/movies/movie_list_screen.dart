@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 
 import '../../../data/datasources/remote/xtream_api.dart';
 import '../../../data/models/movie_item.dart';
+import '../../../data/services/watch_progress_service.dart';
 import 'movie_detail_screen.dart';
 
 class MovieListScreen extends StatefulWidget {
@@ -45,11 +46,39 @@ class _MovieListScreenState extends State<MovieListScreen> {
 
   Future<void> _loadMovies() async {
     if (_isContinueWatching) {
-      setState(() {
-        _isLoading = false;
-        _errorMessage = null;
-        _movies = <MovieItem>[];
-      });
+      try {
+        final entries = await WatchProgressService.getAllProgress();
+        if (!mounted) {
+          return;
+        }
+        setState(() {
+          _isLoading = false;
+          _errorMessage = null;
+          _movies = entries
+              .map(
+                (entry) => MovieItem(
+                  streamId: entry.streamId,
+                  title: entry.title,
+                  posterUrl: entry.poster ?? '',
+                  description: '',
+                  genre: '',
+                  rating: '',
+                  year: '',
+                  containerExtension: 'mp4',
+                ),
+              )
+              .toList();
+        });
+      } catch (_) {
+        if (!mounted) {
+          return;
+        }
+        setState(() {
+          _isLoading = false;
+          _errorMessage = 'Failed to load continue watching movies.';
+          _movies = <MovieItem>[];
+        });
+      }
       return;
     }
 
@@ -183,18 +212,17 @@ class _MovieListScreenState extends State<MovieListScreen> {
       );
     }
 
-    if (_isContinueWatching) {
-      return const Center(
-        child: Text(
-          'No movies yet',
-          style: TextStyle(color: Colors.white54, fontSize: 16),
-        ),
-      );
-    }
-
     final filteredMovies = _filteredMovies;
 
     if (filteredMovies.isEmpty) {
+      if (_isContinueWatching) {
+        return const Center(
+          child: Text(
+            'No movies in Continue Watching yet',
+            style: TextStyle(color: Colors.white54, fontSize: 16),
+          ),
+        );
+      }
       return const Center(
         child: Text(
           'No movies found',
@@ -250,115 +278,133 @@ class _MovieCardState extends State<_MovieCard> {
         defaultTargetPlatform == TargetPlatform.macOS ||
         defaultTargetPlatform == TargetPlatform.linux;
 
-    return MouseRegion(
-      onEnter: (_) {
-        if (enableHover) {
-          setState(() => _isHovering = true);
-        }
-      },
-      onExit: (_) {
-        if (enableHover) {
-          setState(() => _isHovering = false);
-        }
-      },
-      child: AnimatedScale(
-        duration: const Duration(milliseconds: 180),
-        scale: _isHovering ? 1.02 : 1,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 180),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(
-              color: _isHovering ? const Color(0xFF00C6FF).withValues(alpha: 0.6) : Colors.transparent,
-              width: 1.2,
-            ),
-            boxShadow: [
-              if (_isHovering)
-                BoxShadow(
-                  color: const Color(0xFF00C6FF).withValues(alpha: 0.28),
-                  blurRadius: 14,
-                  spreadRadius: 1,
+    return FutureBuilder<WatchProgressEntry?>(
+      future: WatchProgressService.getProgress(widget.movie.streamId),
+      builder: (context, snapshot) {
+        final progress = snapshot.data;
+        final progressValue = (progress?.progressPercent ?? 0.0).clamp(0.0, 1.0);
+
+        return MouseRegion(
+          onEnter: (_) {
+            if (enableHover) {
+              setState(() => _isHovering = true);
+            }
+          },
+          onExit: (_) {
+            if (enableHover) {
+              setState(() => _isHovering = false);
+            }
+          },
+          child: AnimatedScale(
+            duration: const Duration(milliseconds: 180),
+            scale: _isHovering ? 1.02 : 1,
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 180),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: _isHovering ? const Color(0xFF00C6FF).withValues(alpha: 0.6) : Colors.transparent,
+                  width: 1.2,
                 ),
-            ],
-          ),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(12),
-            child: Material(
-              color: Colors.transparent,
-              child: InkWell(
-                onTap: widget.onTap,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Expanded(
-                      child: Stack(
-                        fit: StackFit.expand,
-                        children: [
-                          ColorFiltered(
-                            colorFilter: ColorFilter.mode(
-                              Colors.white.withValues(alpha: _isHovering ? 0.12 : 0),
-                              BlendMode.screen,
-                            ),
-                            child: Image.network(
-                              widget.movie.posterUrl,
-                              fit: BoxFit.cover,
-                              errorBuilder: (_, __, ___) => Container(
-                                color: Colors.white10,
-                                child: const Icon(Icons.movie, color: Colors.white38, size: 30),
-                              ),
-                            ),
-                          ),
-                          Positioned(
-                            top: 6,
-                            right: 6,
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
-                              decoration: BoxDecoration(
-                                color: Colors.black.withValues(alpha: 0.7),
-                                borderRadius: BorderRadius.circular(9),
-                              ),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  const Icon(Icons.star, color: Colors.amber, size: 11),
-                                  const SizedBox(width: 2),
-                                  Text(
-                                    widget.movie.rating.isEmpty ? '-' : widget.movie.rating,
-                                    style: const TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.w600,
-                                    ),
+                boxShadow: [
+                  if (_isHovering)
+                    BoxShadow(
+                      color: const Color(0xFF00C6FF).withValues(alpha: 0.28),
+                      blurRadius: 14,
+                      spreadRadius: 1,
+                    ),
+                ],
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    onTap: widget.onTap,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Expanded(
+                          child: Stack(
+                            fit: StackFit.expand,
+                            children: [
+                              ColorFiltered(
+                                colorFilter: ColorFilter.mode(
+                                  Colors.white.withValues(alpha: _isHovering ? 0.12 : 0),
+                                  BlendMode.screen,
+                                ),
+                                child: Image.network(
+                                  widget.movie.posterUrl,
+                                  fit: BoxFit.cover,
+                                  errorBuilder: (_, __, ___) => Container(
+                                    color: Colors.white10,
+                                    child: const Icon(Icons.movie, color: Colors.white38, size: 30),
                                   ),
-                                ],
+                                ),
                               ),
+                              Positioned(
+                                top: 6,
+                                right: 6,
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                                  decoration: BoxDecoration(
+                                    color: Colors.black.withValues(alpha: 0.7),
+                                    borderRadius: BorderRadius.circular(9),
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      const Icon(Icons.star, color: Colors.amber, size: 11),
+                                      const SizedBox(width: 2),
+                                      Text(
+                                        widget.movie.rating.isEmpty ? '-' : widget.movie.rating,
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Container(
+                          color: const Color(0xFF101420),
+                          padding: const EdgeInsets.fromLTRB(7, 6, 7, 7),
+                          child: Text(
+                            widget.movie.title,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w600,
+                              fontSize: 11,
+                              height: 1.2,
                             ),
                           ),
-                        ],
-                      ),
-                    ),
-                    Container(
-                      color: const Color(0xFF101420),
-                      padding: const EdgeInsets.fromLTRB(7, 6, 7, 7),
-                      child: Text(
-                        widget.movie.title,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.w600,
-                          fontSize: 11,
-                          height: 1.2,
                         ),
-                      ),
+                        if (progress != null)
+                          SizedBox(
+                            height: 4,
+                            child: LinearProgressIndicator(
+                              value: progressValue,
+                              backgroundColor: Colors.white12,
+                              valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF00C6FF)),
+                            ),
+                          ),
+                      ],
                     ),
-                  ],
+                  ),
                 ),
               ),
             ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
+
 }
