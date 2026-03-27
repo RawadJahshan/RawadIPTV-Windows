@@ -1,10 +1,12 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../data/datasources/remote/xtream_api.dart';
 import '../../../data/models/movie_item.dart';
 import '../../../data/services/favorites_service.dart';
 import '../../../data/services/watch_progress_service.dart';
+import 'package:iptv_app/presentation/screens/player/movie_player_screen.dart';
 import 'movie_detail_screen.dart';
 
 class MovieListScreen extends StatefulWidget {
@@ -90,14 +92,27 @@ class _MovieListScreenState extends State<MovieListScreen> {
 
     if (_isContinueWatching) {
       try {
+        final prefs = await SharedPreferences.getInstance();
         final entries = await WatchProgressService.getAllProgress();
+
+        final movieEntries = <WatchProgressEntry>[];
+        for (final entry in entries) {
+          final isSeries = prefs.getString(
+            'series_episode_meta_${entry.streamId}',
+          ) !=
+              null;
+          if (!isSeries) {
+            movieEntries.add(entry);
+          }
+        }
+
         if (!mounted) {
           return;
         }
         setState(() {
           _isLoading = false;
           _errorMessage = null;
-          _movies = entries
+          _movies = movieEntries
               .map(
                 (entry) => MovieItem(
                   streamId: entry.streamId,
@@ -118,7 +133,7 @@ class _MovieListScreenState extends State<MovieListScreen> {
         }
         setState(() {
           _isLoading = false;
-          _errorMessage = 'Failed to load continue watching movies.';
+          _errorMessage = 'Failed to load continue watching.';
           _movies = <MovieItem>[];
         });
       }
@@ -162,6 +177,74 @@ class _MovieListScreenState extends State<MovieListScreen> {
     }
     final lowerQuery = _searchQuery.toLowerCase();
     return _movies.where((movie) => movie.title.toLowerCase().contains(lowerQuery)).toList();
+  }
+
+  Future<void> _openContinueWatchingMovie(MovieItem movie) async {
+    final progress = await WatchProgressService.getProgress(movie.streamId);
+
+    if (!mounted) {
+      return;
+    }
+
+    Duration? startAt;
+    if (progress != null && progress.positionMs > 10000 && !progress.isFinished) {
+      final resume = await showDialog<bool>(
+        context: context,
+        builder: (_) => AlertDialog(
+          title: const Text('Resume Playback'),
+          content: Text(
+            'Continue from ${_formatDuration(progress.position)}?',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Start Over'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Resume'),
+            ),
+          ],
+        ),
+      );
+
+      if (resume == null || !mounted) {
+        return;
+      }
+      startAt = resume ? progress.position : null;
+    }
+
+    final prefs = await SharedPreferences.getInstance();
+    final username = prefs.getString('username') ?? '';
+    final password = prefs.getString('password') ?? '';
+    final serverUrl = prefs.getString('server_url') ?? 'http://rawadiptv.online';
+
+    final streamUrl =
+        '$serverUrl/movie/$username/$password/${movie.streamId}.${movie.containerExtension}';
+
+    if (!mounted) {
+      return;
+    }
+
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => MoviePlayerScreen(
+          streamUrl: streamUrl,
+          title: movie.title,
+          streamId: movie.streamId,
+          poster: movie.posterUrl,
+          startAt: startAt,
+        ),
+      ),
+    );
+  }
+
+  String _formatDuration(Duration d) {
+    final h = d.inHours;
+    final m = d.inMinutes.remainder(60).toString().padLeft(2, '0');
+    final s = d.inSeconds.remainder(60).toString().padLeft(2, '0');
+    return h > 0 ? '$h:$m:$s' : '${d.inMinutes}:$s';
   }
 
   @override
@@ -289,6 +372,10 @@ class _MovieListScreenState extends State<MovieListScreen> {
       itemBuilder: (context, index) => _MovieCard(
         movie: filteredMovies[index],
         onTap: () {
+          if (_isContinueWatching) {
+            _openContinueWatchingMovie(filteredMovies[index]);
+            return;
+          }
           Navigator.push(
             context,
             MaterialPageRoute(
