@@ -36,8 +36,10 @@ class _MoviePlayerScreenState extends State<MoviePlayerScreen> {
   Duration _position = Duration.zero;
   Duration _duration = Duration.zero;
   Timer? _progressTimer;
-  List<dynamic> _audioTracks = [];
+  List<String> _audioTracks = [];
+  List<String> _subtitleTracks = [];
   int _selectedAudioTrack = 0;
+  int _selectedSubtitleTrack = -1;
 
   @override
   void initState() {
@@ -81,17 +83,16 @@ class _MoviePlayerScreenState extends State<MoviePlayerScreen> {
 
     _player.currentStream.listen((current) {
       if (!mounted) return;
-      final media = current.medias.firstOrNull;
-      if (media != null) {
-        setState(() {
-          _audioTracks = _player.audioTrackCount > 0
-              ? List.generate(
-                  _player.audioTrackCount,
-                  (i) => 'Audio Track ${i + 1}',
-                )
-              : [];
-        });
-      }
+      final audioCount = _player.audioTrackCount;
+      final subCount = _player.subtitleCount;
+      setState(() {
+        _audioTracks = audioCount > 0
+            ? List.generate(audioCount, (i) => 'Audio Track ${i + 1}')
+            : [];
+        _subtitleTracks = subCount > 0
+            ? List.generate(subCount, (i) => 'Subtitle ${i + 1}')
+            : [];
+      });
     });
 
     if (widget.startAt != null && widget.startAt! > Duration.zero) {
@@ -153,6 +154,17 @@ class _MoviePlayerScreenState extends State<MoviePlayerScreen> {
     return h > 0 ? '$h:$m:$s' : '${d.inMinutes}:$s';
   }
 
+  Future<void> _toggleFullscreen() async {
+    final newValue = !_isFullscreen;
+    setState(() => _isFullscreen = newValue);
+    await WindowManager.instance.setFullScreen(newValue);
+  }
+
+  Future<void> _exitFullscreen() async {
+    setState(() => _isFullscreen = false);
+    await WindowManager.instance.setFullScreen(false);
+  }
+
   @override
   void dispose() {
     WindowManager.instance.setFullScreen(false);
@@ -180,6 +192,12 @@ class _MoviePlayerScreenState extends State<MoviePlayerScreen> {
           if (event.logicalKey == LogicalKeyboardKey.arrowRight) _skip(30);
           if (event.logicalKey == LogicalKeyboardKey.arrowLeft) _skip(-30);
           if (event.logicalKey == LogicalKeyboardKey.space) _player.playOrPause();
+          if (event.logicalKey == LogicalKeyboardKey.keyF) {
+            unawaited(_toggleFullscreen());
+          }
+          if (event.logicalKey == LogicalKeyboardKey.escape && _isFullscreen) {
+            unawaited(_exitFullscreen());
+          }
         }
       },
       child: Scaffold(
@@ -341,6 +359,7 @@ class _MoviePlayerScreenState extends State<MoviePlayerScreen> {
                                           // Audio tracks
                                           if (_audioTracks.isNotEmpty)
                                             PopupMenuButton<int>(
+                                              tooltip: 'Audio Track',
                                               icon: const Icon(Icons.audiotrack,
                                                   color: Colors.white),
                                               onSelected: (index) {
@@ -365,12 +384,71 @@ class _MoviePlayerScreenState extends State<MoviePlayerScreen> {
                                                                 e.key)
                                                               const SizedBox(
                                                                   width: 8),
-                                                            Text(e.value
-                                                                .toString()),
+                                                            Text(e.value),
                                                           ],
                                                         ),
                                                       ))
                                                   .toList(),
+                                            ),
+                                          if (_subtitleTracks.isNotEmpty)
+                                            PopupMenuButton<int>(
+                                              tooltip: 'Subtitles',
+                                              icon: const Icon(
+                                                Icons.closed_caption,
+                                                color: Colors.white,
+                                              ),
+                                              onSelected: (index) {
+                                                _player.setSubtitleTrack(index);
+                                                setState(() =>
+                                                    _selectedSubtitleTrack =
+                                                        index);
+                                              },
+                                              itemBuilder: (_) => [
+                                                PopupMenuItem(
+                                                  value: -1,
+                                                  child: Row(
+                                                    children: [
+                                                      if (_selectedSubtitleTrack ==
+                                                          -1)
+                                                        const Padding(
+                                                          padding:
+                                                              EdgeInsets.only(
+                                                                  right: 8),
+                                                          child: Icon(
+                                                            Icons.check,
+                                                            size: 16,
+                                                          ),
+                                                        ),
+                                                      const Text('Off'),
+                                                    ],
+                                                  ),
+                                                ),
+                                                ..._subtitleTracks
+                                                    .asMap()
+                                                    .entries
+                                                    .map(
+                                                      (e) => PopupMenuItem(
+                                                        value: e.key,
+                                                        child: Row(
+                                                          children: [
+                                                            if (_selectedSubtitleTrack ==
+                                                                e.key)
+                                                              const Padding(
+                                                                padding: EdgeInsets
+                                                                    .only(
+                                                                        right:
+                                                                            8),
+                                                                child: Icon(
+                                                                  Icons.check,
+                                                                  size: 16,
+                                                                ),
+                                                              ),
+                                                            Text(e.value),
+                                                          ],
+                                                        ),
+                                                      ),
+                                                    ),
+                                              ],
                                             ),
                                           IconButton(
                                             icon: Icon(
@@ -379,17 +457,8 @@ class _MoviePlayerScreenState extends State<MoviePlayerScreen> {
                                                   : Icons.fullscreen,
                                               color: Colors.white,
                                             ),
-                                            onPressed: () async {
-                                              setState(() => _isFullscreen =
-                                                  !_isFullscreen);
-                                              if (_isFullscreen) {
-                                                await WindowManager.instance
-                                                    .setFullScreen(true);
-                                              } else {
-                                                await WindowManager.instance
-                                                    .setFullScreen(false);
-                                              }
-                                            },
+                                            onPressed: () =>
+                                                _toggleFullscreen(),
                                           ),
                                         ],
                                       ),
