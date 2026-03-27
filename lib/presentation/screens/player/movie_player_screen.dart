@@ -79,9 +79,15 @@ class _MoviePlayerScreenState extends State<MoviePlayerScreen> {
 
     TrackInfoService.getTracksForUrl(widget.streamUrl).then((tracks) {
       if (!mounted) return;
+      final audioTracks = tracks.where((t) => t.type == 'audio').toList();
+      final subtitleTracks = tracks.where((t) => t.type == 'subtitle').toList();
+      if (audioTracks.isEmpty && subtitleTracks.isEmpty) {
+        debugPrint('[Player] keeping existing tracks: probe returned empty');
+        return;
+      }
       setState(() {
-        _audioTracks = tracks.where((t) => t.type == 'audio').toList();
-        _subtitleTracks = tracks.where((t) => t.type == 'subtitle').toList();
+        _audioTracks = audioTracks;
+        _subtitleTracks = subtitleTracks;
       });
       debugPrint('[Player] audio=${_audioTracks.length} subs=${_subtitleTracks.length}');
     });
@@ -169,9 +175,15 @@ class _MoviePlayerScreenState extends State<MoviePlayerScreen> {
 
     TrackInfoService.getTracksForUrl(widget.streamUrl).then((tracks) {
       if (!mounted) return;
+      final audioTracks = tracks.where((t) => t.type == 'audio').toList();
+      final subtitleTracks = tracks.where((t) => t.type == 'subtitle').toList();
+      if (audioTracks.isEmpty && subtitleTracks.isEmpty) {
+        debugPrint('[Player] keeping existing tracks after reopen: probe returned empty');
+        return;
+      }
       setState(() {
-        _audioTracks = tracks.where((t) => t.type == 'audio').toList();
-        _subtitleTracks = tracks.where((t) => t.type == 'subtitle').toList();
+        _audioTracks = audioTracks;
+        _subtitleTracks = subtitleTracks;
       });
       debugPrint('[Player] audio=${_audioTracks.length} subs=${_subtitleTracks.length}');
     });

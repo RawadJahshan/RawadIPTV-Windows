@@ -20,15 +20,123 @@ class TrackInfo {
 class TrackInfoService {
   static String _getFfprobePath() {
     final exeDir = File(Platform.resolvedExecutable).parent.path;
-    // In debug mode look in build output
     final candidates = [
       '$exeDir\\ffprobe.exe',
       '$exeDir\\data\\flutter_assets\\ffprobe.exe',
+      '$exeDir\\ffmpeg\\bin\\ffprobe.exe',
     ];
     for (final path in candidates) {
       if (File(path).existsSync()) return path;
     }
-    return 'ffprobe'; // fallback to PATH
+    return 'ffprobe';
+  }
+
+  static String _getFfmpegPath() {
+    final exeDir = File(Platform.resolvedExecutable).parent.path;
+    final candidates = [
+      '$exeDir\\ffmpeg.exe',
+      '$exeDir\\data\\flutter_assets\\ffmpeg.exe',
+      '$exeDir\\ffmpeg\\bin\\ffmpeg.exe',
+    ];
+    for (final path in candidates) {
+      if (File(path).existsSync()) return path;
+    }
+    return 'ffmpeg';
+  }
+
+  static List<TrackInfo> _parseFfprobeTracks(Map<String, dynamic> json) {
+    final streams = json['streams'] as List? ?? [];
+    final tracks = <TrackInfo>[];
+    var audioFallback = 0;
+    var subFallback = 0;
+
+    for (final stream in streams) {
+      final s = stream as Map<String, dynamic>;
+      final codecType = s['codec_type']?.toString() ?? '';
+      final codec = s['codec_name']?.toString() ?? '';
+      final tags = s['tags'] as Map? ?? {};
+      final language = tags['language']?.toString() ?? '';
+      final title = tags['title']?.toString() ?? '';
+      final streamIndex = s['index'] is int ? s['index'] as int : null;
+
+      var name = title.isNotEmpty
+          ? title
+          : language.isNotEmpty
+              ? language.toUpperCase()
+              : '';
+
+      if (codecType == 'audio') {
+        if (name.isEmpty) name = 'Audio ${audioFallback + 1}';
+        tracks.add(
+          TrackInfo(
+            index: streamIndex ?? audioFallback,
+            type: 'audio',
+            name: name,
+            codec: codec,
+          ),
+        );
+        audioFallback++;
+      } else if (codecType == 'subtitle') {
+        if (name.isEmpty) name = 'Subtitle ${subFallback + 1}';
+        tracks.add(
+          TrackInfo(
+            index: streamIndex ?? subFallback,
+            type: 'subtitle',
+            name: name,
+            codec: codec,
+          ),
+        );
+        subFallback++;
+      }
+    }
+
+    return tracks;
+  }
+
+  static List<TrackInfo> _parseFfmpegOutput(String output) {
+    final tracks = <TrackInfo>[];
+    final lines = const LineSplitter().convert(output);
+    final re = RegExp(
+      r'Stream #\d+:(\d+)(?:\[[^\]]+\])?(?:\(([^)]+)\))?: (Audio|Subtitle):\s*([^,]+)',
+      caseSensitive: false,
+    );
+    var audioFallback = 0;
+    var subFallback = 0;
+
+    for (final line in lines) {
+      final match = re.firstMatch(line);
+      if (match == null) continue;
+
+      final streamIndex = int.tryParse(match.group(1) ?? '');
+      final language = (match.group(2) ?? '').trim();
+      final typeRaw = (match.group(3) ?? '').toLowerCase();
+      final codec = (match.group(4) ?? '').trim().toLowerCase();
+      final isAudio = typeRaw == 'audio';
+      final fallback = isAudio ? audioFallback : subFallback;
+
+      final name = language.isNotEmpty
+          ? language.toUpperCase()
+          : isAudio
+              ? 'Audio ${audioFallback + 1}'
+              : 'Subtitle ${subFallback + 1}';
+
+      tracks.add(
+        TrackInfo(
+          index: streamIndex ?? fallback,
+          type: isAudio ? 'audio' : 'subtitle',
+          name: name,
+          codec: codec,
+        ),
+      );
+
+      if (isAudio) {
+        audioFallback++;
+      } else {
+        subFallback++;
+      }
+    }
+
+    return tracks;
   }
 
   static Future<List<TrackInfo>> getTracksForUrl(String url) async {
@@ -53,60 +161,38 @@ class TrackInfoService {
 
       if (result.exitCode != 0) {
         debugPrint('[TrackInfoService] ffprobe error: ${result.stderr}');
-        return [];
-      }
-
-      final json = jsonDecode(result.stdout as String) as Map<String, dynamic>;
-      final streams = json['streams'] as List? ?? [];
-
-      final tracks = <TrackInfo>[];
-      var audioIndex = 0;
-      var subIndex = 0;
-
-      for (final stream in streams) {
-        final s = stream as Map<String, dynamic>;
-        final codecType = s['codec_type']?.toString() ?? '';
-        final codec = s['codec_name']?.toString() ?? '';
-        final tags = s['tags'] as Map? ?? {};
-
-        final language = tags['language']?.toString() ?? '';
-        final title = tags['title']?.toString() ?? '';
-
-        var name = title.isNotEmpty
-            ? title
-            : language.isNotEmpty
-            ? language.toUpperCase()
-            : '';
-
-        if (codecType == 'audio') {
-          if (name.isEmpty) name = 'Audio ${audioIndex + 1}';
-          tracks.add(
-            TrackInfo(
-              index: audioIndex,
-              type: 'audio',
-              name: name,
-              codec: codec,
-            ),
+      } else {
+        final json = jsonDecode(result.stdout as String) as Map<String, dynamic>;
+        final tracks = _parseFfprobeTracks(json);
+        if (tracks.isNotEmpty) {
+          debugPrint(
+            '[TrackInfoService] found '
+            '${tracks.where((t) => t.type == "audio").length} audio, '
+            '${tracks.where((t) => t.type == "subtitle").length} subtitle tracks (ffprobe)',
           );
-          audioIndex++;
-        } else if (codecType == 'subtitle') {
-          if (name.isEmpty) name = 'Subtitle ${subIndex + 1}';
-          tracks.add(
-            TrackInfo(
-              index: subIndex,
-              type: 'subtitle',
-              name: name,
-              codec: codec,
-            ),
-          );
-          subIndex++;
+          return tracks;
         }
       }
 
+      final ffmpeg = _getFfmpegPath();
+      debugPrint('[TrackInfoService] fallback using ffmpeg: $ffmpeg');
+      final ffmpegResult = await Process.run(
+        ffmpeg,
+        [
+          '-hide_banner',
+          '-user_agent',
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+          '-i',
+          url,
+        ],
+        runInShell: false,
+      ).timeout(const Duration(seconds: 15));
+
+      final tracks = _parseFfmpegOutput(ffmpegResult.stderr as String);
       debugPrint(
         '[TrackInfoService] found '
         '${tracks.where((t) => t.type == "audio").length} audio, '
-        '${tracks.where((t) => t.type == "subtitle").length} subtitle tracks',
+        '${tracks.where((t) => t.type == "subtitle").length} subtitle tracks (ffmpeg fallback)',
       );
       return tracks;
     } catch (e) {
