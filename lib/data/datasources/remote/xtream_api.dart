@@ -1,6 +1,5 @@
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
-import '../../../core/constants/app_constants.dart';
 
 class XtreamApi {
   late final Dio _dio;
@@ -60,7 +59,7 @@ class XtreamApi {
     required String username,
     required String password,
   }) {
-    _serverUrl = AppConstants.serverUrl;
+    _serverUrl = serverUrl.trim().replaceAll(RegExp(r'/$'), '');
     _username = username;
     _password = password;
   }
@@ -84,7 +83,10 @@ class XtreamApi {
     String password,
   ) async {
     try {
-      final url = '${AppConstants.apiBase}?username=$username&password=$password&action=get_live_categories';
+      final normalizedServerUrl = serverUrl.trim().replaceAll(RegExp(r'/$'), '');
+      final url = '$normalizedServerUrl/player_api.php'
+          '?username=$username&password=$password'
+          '&action=get_account_info';
       final response = await _dio.get(url);
       if (response.statusCode == 200) {
         return {'success': true, 'data': response.data};
