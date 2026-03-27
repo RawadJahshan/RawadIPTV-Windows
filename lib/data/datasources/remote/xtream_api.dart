@@ -14,15 +14,18 @@ class XtreamApi {
     _instances.add(this);
     _dio = Dio(
       BaseOptions(
-        connectTimeout: const Duration(seconds: 10),
-        receiveTimeout: const Duration(seconds: 60),
+        connectTimeout: const Duration(seconds: 15),
+        receiveTimeout: const Duration(seconds: 30),
         sendTimeout: const Duration(seconds: 10),
         headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
-          'Connection': 'keep-alive',
-          'Accept-Encoding': 'gzip, deflate',
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+              'AppleWebKit/537.36 (KHTML, like Gecko) '
+              'Chrome/120.0.0.0 Safari/537.36',
           'Accept': '*/*',
+          'Accept-Language': 'en-US,en;q=0.9',
+          'Connection': 'keep-alive',
         },
+        validateStatus: (status) => status != null && status >= 200 && status < 500,
         responseType: ResponseType.json,
       ),
     );
@@ -30,11 +33,25 @@ class XtreamApi {
     _dio.interceptors.add(
       InterceptorsWrapper(
         onError: (error, handler) {
+          if (error.response?.statusCode == 403) {
+            debugPrint('[API] 403 Forbidden — check credentials or User-Agent');
+          }
           debugPrint('API Error: ${error.message}');
           handler.next(error);
         },
       ),
     );
+
+    _dio.options.headers = {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+          'AppleWebKit/537.36 (KHTML, like Gecko) '
+          'Chrome/120.0.0.0 Safari/537.36',
+      'Accept': '*/*',
+      'Accept-Language': 'en-US,en;q=0.9',
+      'Connection': 'keep-alive',
+    };
+    _dio.options.connectTimeout = const Duration(seconds: 15);
+    _dio.options.receiveTimeout = const Duration(seconds: 30);
   }
 
   void setCredentials({
