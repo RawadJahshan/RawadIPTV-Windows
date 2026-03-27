@@ -45,8 +45,11 @@ class _MoviePlayerScreenState extends State<MoviePlayerScreen> {
   Duration _duration = Duration.zero;
   Timer? _progressTimer;
   List<String> _audioTracks = [];
+  List<String> _subtitleTracks = [];
   int _selectedAudioTrack = 0;
+  int _selectedSubTrack = -1;
   int _aspectRatioIndex = 0;
+  bool _didResume = false;
 
   final List<Map<String, dynamic>> _aspectRatios = [
     {'label': 'Auto', 'ratio': BoxFit.contain},
@@ -65,12 +68,57 @@ class _MoviePlayerScreenState extends State<MoviePlayerScreen> {
   Future<void> _initPlayer() async {
     _player = Player(id: widget.streamId);
 
+    _attachPlayerListeners();
+    _player.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64)');
+
+    _player.open(
+      Media.network(widget.streamUrl),
+      autoStart: true,
+    );
+
+    _player.currentStream.listen((current) {
+      if (!mounted) return;
+      final subCount = _getSubtitleTrackCount();
+      final audioCount = _player.audioTrackCount;
+      setState(() {
+        _audioTracks = audioCount > 0
+            ? List.generate(audioCount, (i) => 'Audio ${i + 1}')
+            : [];
+        _subtitleTracks = subCount > 0
+            ? List.generate(subCount, (i) => 'Subtitle ${i + 1}')
+            : [];
+      });
+    });
+
+    if (widget.startAt != null && widget.startAt! > Duration.zero) {
+      await Future<void>.delayed(const Duration(seconds: 2));
+      _player.seek(widget.startAt!);
+    }
+
+    _progressTimer = Timer.periodic(
+      const Duration(seconds: 5), (_) => _saveProgress());
+
+    _scheduleHide();
+  }
+
+  void _attachPlayerListeners({Duration? resumeAt}) {
     _player.positionStream.listen((pos) {
       if (!mounted) return;
+      final newPos = pos.position ?? Duration.zero;
+      final newDur = pos.duration ?? Duration.zero;
       setState(() {
-        _position = pos.position ?? Duration.zero;
-        _duration = pos.duration ?? Duration.zero;
+        _position = newPos;
+        _duration = newDur;
       });
+
+      if (!_didResume &&
+          resumeAt != null &&
+          resumeAt > Duration.zero &&
+          newDur > Duration.zero &&
+          newPos > Duration.zero) {
+        _didResume = true;
+        _doResume(resumeAt, newDur);
+      }
     });
 
     _player.bufferingProgressStream.listen((percent) {
@@ -88,33 +136,80 @@ class _MoviePlayerScreenState extends State<MoviePlayerScreen> {
         _isBuffering = !playback.isPlaying && !playback.isCompleted;
       });
     });
+  }
 
+  void _doResume(Duration startAt, Duration totalDuration) {
+    final target = startAt > totalDuration ? totalDuration : startAt;
+    _player.seek(target);
+  }
+
+  int _getSubtitleTrackCount() {
+    final dynamic player = _player;
+    try {
+      final count = player.spuCount;
+      if (count is int) return count;
+    } catch (_) {}
+    try {
+      final count = player.subtitleTrackCount;
+      if (count is int) return count;
+    } catch (_) {}
+    try {
+      final count = player.subtitleCount;
+      if (count is int) return count;
+    } catch (_) {}
+    return 0;
+  }
+
+  Future<void> _reopenWithSettings({
+    required Duration startAt,
+    required int subTrack,
+    required int audioTrack,
+  }) async {
+    if (!mounted) return;
+    setState(() => _isBuffering = true);
+
+    final args = <String>[];
+    if (subTrack == -2) {
+      args.add('--no-spu');
+    } else if (subTrack >= 0) {
+      args.add('--sub-track=$subTrack');
+    }
+    if (audioTrack > 0) {
+      args.add('--audio-track=$audioTrack');
+    }
+
+    _player.dispose();
+
+    _player = Player(
+      id: widget.streamId + 1,
+      commandlineArguments: args,
+    );
     _player.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64)');
+
+    _attachPlayerListeners(resumeAt: startAt);
+
+    _player.currentStream.listen((current) {
+      if (!mounted) return;
+      final subCount = _getSubtitleTrackCount();
+      final audioCount = _player.audioTrackCount;
+      setState(() {
+        _audioTracks = audioCount > 0
+            ? List.generate(audioCount, (i) => 'Audio ${i + 1}')
+            : [];
+        _subtitleTracks = subCount > 0
+            ? List.generate(subCount, (i) => 'Subtitle ${i + 1}')
+            : [];
+      });
+    });
+
+    _didResume = false;
 
     _player.open(
       Media.network(widget.streamUrl),
       autoStart: true,
     );
 
-    _player.currentStream.listen((current) {
-      if (!mounted) return;
-      final audioCount = _player.audioTrackCount;
-      setState(() {
-        _audioTracks = audioCount > 0
-            ? List.generate(audioCount, (i) => 'Audio Track ${i + 1}')
-            : [];
-      });
-    });
-
-    if (widget.startAt != null && widget.startAt! > Duration.zero) {
-      await Future<void>.delayed(const Duration(seconds: 2));
-      _player.seek(widget.startAt!);
-    }
-
-    _progressTimer = Timer.periodic(
-      const Duration(seconds: 5), (_) => _saveProgress());
-
-    _scheduleHide();
+    if (mounted) setState(() {});
   }
 
   Future<void> _saveProgress() async {
@@ -395,10 +490,15 @@ class _MoviePlayerScreenState extends State<MoviePlayerScreen> {
                                               tooltip: 'Audio Track',
                                               icon: const Icon(Icons.audiotrack,
                                                   color: Colors.white),
-                                              onSelected: (index) {
-                                                _player.setAudioTrack(index);
+                                              onSelected: (index) async {
+                                                final currentPos = _position;
                                                 setState(() =>
                                                     _selectedAudioTrack = index);
+                                                await _reopenWithSettings(
+                                                  startAt: currentPos,
+                                                  subTrack: _selectedSubTrack,
+                                                  audioTrack: index,
+                                                );
                                               },
                                               itemBuilder: (_) => _audioTracks
                                                   .asMap()
@@ -423,6 +523,82 @@ class _MoviePlayerScreenState extends State<MoviePlayerScreen> {
                                                       ))
                                                   .toList(),
                                             ),
+                                          PopupMenuButton<int>(
+                                            tooltip: 'Subtitles',
+                                            icon: Icon(
+                                              _selectedSubTrack == -2
+                                                  ? Icons.closed_caption_disabled
+                                                  : Icons.closed_caption,
+                                              color: Colors.white,
+                                            ),
+                                            onSelected: (index) async {
+                                              final currentPos = _position;
+                                              setState(() =>
+                                                  _selectedSubTrack = index);
+                                              await _reopenWithSettings(
+                                                startAt: currentPos,
+                                                subTrack: index,
+                                                audioTrack: _selectedAudioTrack,
+                                              );
+                                            },
+                                            itemBuilder: (_) => [
+                                              PopupMenuItem(
+                                                value: -2,
+                                                child: Row(
+                                                  children: [
+                                                    if (_selectedSubTrack == -2)
+                                                      const Padding(
+                                                        padding:
+                                                            EdgeInsets.only(
+                                                                right: 8),
+                                                        child: Icon(Icons.check,
+                                                            size: 16),
+                                                      ),
+                                                    const Text('Off'),
+                                                  ],
+                                                ),
+                                              ),
+                                              PopupMenuItem(
+                                                value: -1,
+                                                child: Row(
+                                                  children: [
+                                                    if (_selectedSubTrack == -1)
+                                                      const Padding(
+                                                        padding:
+                                                            EdgeInsets.only(
+                                                                right: 8),
+                                                        child: Icon(Icons.check,
+                                                            size: 16),
+                                                      ),
+                                                    const Text('Auto'),
+                                                  ],
+                                                ),
+                                              ),
+                                              ..._subtitleTracks
+                                                  .asMap()
+                                                  .entries
+                                                  .map(
+                                                    (e) => PopupMenuItem(
+                                                      value: e.key,
+                                                      child: Row(
+                                                        children: [
+                                                          if (_selectedSubTrack ==
+                                                              e.key)
+                                                            const Padding(
+                                                              padding:
+                                                                  EdgeInsets.only(
+                                                                      right: 8),
+                                                              child: Icon(
+                                                                  Icons.check,
+                                                                  size: 16),
+                                                            ),
+                                                          Text(e.value),
+                                                        ],
+                                                      ),
+                                                    ),
+                                                  ),
+                                            ],
+                                          ),
                                           PopupMenuButton<int>(
                                             tooltip: 'Aspect Ratio',
                                             icon: const Icon(
