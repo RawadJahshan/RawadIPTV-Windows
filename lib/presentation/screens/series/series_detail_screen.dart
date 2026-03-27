@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../../data/datasources/remote/xtream_api.dart';
+import '../../../data/services/favorites_service.dart';
 import '../../../data/services/watch_progress_service.dart';
 import '../player/movie_player_screen.dart';
 
@@ -29,6 +30,7 @@ class SeriesDetailScreen extends StatefulWidget {
 class _SeriesDetailScreenState extends State<SeriesDetailScreen> {
   bool _loading = true;
   bool _isPlotExpanded = false;
+  bool _isFavorite = false;
 
   String _title = '';
   String _cover = '';
@@ -49,7 +51,15 @@ class _SeriesDetailScreenState extends State<SeriesDetailScreen> {
     super.initState();
     _title = widget.seriesName;
     _cover = widget.posterUrl;
+    _loadFavoriteStatus();
     _load();
+  }
+
+  Future<void> _loadFavoriteStatus() async {
+    final fav = await FavoritesService.isFavorite(widget.seriesId, FavoriteType.series);
+    if (mounted) {
+      setState(() => _isFavorite = fav);
+    }
   }
 
   Future<void> _load() async {
@@ -254,21 +264,57 @@ class _SeriesDetailScreenState extends State<SeriesDetailScreen> {
                       children: [
                         _buildInfoSection(),
                         const SizedBox(height: 18),
-                        if (_trailerUrl.trim().isNotEmpty)
-                          SizedBox(
-                            width: double.infinity,
-                            child: ElevatedButton.icon(
-                              onPressed: _openTrailer,
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: const Color(0xFF00A86B),
-                                foregroundColor: Colors.white,
-                                padding: const EdgeInsets.symmetric(vertical: 12),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: FilledButton.icon(
+                                icon: Icon(_isFavorite ? Icons.favorite : Icons.favorite_border),
+                                label: Text(_isFavorite ? 'Remove from Favorites' : 'Add to Favorites'),
+                                style: FilledButton.styleFrom(
+                                  backgroundColor: _isFavorite ? Colors.red : null,
+                                  padding: const EdgeInsets.symmetric(vertical: 12),
+                                ),
+                                onPressed: () async {
+                                  if (_isFavorite) {
+                                    await FavoritesService.remove(widget.seriesId, FavoriteType.series);
+                                    if (mounted) {
+                                      setState(() => _isFavorite = false);
+                                    }
+                                  } else {
+                                    await FavoritesService.add(
+                                      FavoriteEntry(
+                                        id: widget.seriesId,
+                                        name: _title.isEmpty ? widget.seriesName : _title,
+                                        poster: _cover,
+                                        type: FavoriteType.series,
+                                        addedAt: DateTime.now(),
+                                      ),
+                                    );
+                                    if (mounted) {
+                                      setState(() => _isFavorite = true);
+                                    }
+                                  }
+                                },
                               ),
-                              icon: const Icon(Icons.ondemand_video, size: 18),
-                              label: const Text('Play Trailer'),
                             ),
-                          ),
-                        if (_trailerUrl.trim().isNotEmpty) const SizedBox(height: 18),
+                            if (_trailerUrl.trim().isNotEmpty) ...[
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: ElevatedButton.icon(
+                                  onPressed: _openTrailer,
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: const Color(0xFF00A86B),
+                                    foregroundColor: Colors.white,
+                                    padding: const EdgeInsets.symmetric(vertical: 12),
+                                  ),
+                                  icon: const Icon(Icons.ondemand_video, size: 18),
+                                  label: const Text('Play Trailer'),
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                        const SizedBox(height: 18),
                         _buildSeasons(),
                         const SizedBox(height: 12),
                         if (episodes.isEmpty)

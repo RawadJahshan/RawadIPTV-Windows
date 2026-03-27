@@ -21,6 +21,7 @@ class _SeriesCategoriesScreenState extends State<SeriesCategoriesScreen> {
   static const List<MovieCategory> _fixedCategories = <MovieCategory>[
     MovieCategory(id: -1, name: 'All'),
     MovieCategory(id: -2, name: 'Continue Watching'),
+    MovieCategory(id: -3, name: 'My Favorites'),
   ];
 
   @override
