@@ -1,5 +1,7 @@
 // import 'dart:convert';
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../data/datasources/remote/xtream_api.dart';
 import '../../../data/models/profile.dart';
@@ -419,17 +421,28 @@ class _AddProfileDialogState extends State<_AddProfileDialog> {
 
     setState(() => _isLoading = true);
 
-    final result = await _api.authenticate(
-      AppConstants.serverUrl,
-      username,
-      password,
-    );
+    try {
+      final dio = Dio();
+      final prefs = await SharedPreferences.getInstance();
+      final url = 'http://rawadiptv.online/player_api.php'
+          '?username=$username&password=$password'
+          '&action=get_account_info';
 
-    setState(() => _isLoading = false);
+      final response = await dio.get(url);
 
-    if (result['success']) {
-      final userInfo = UserInfo.fromJson(
-        result['data'],
+      final data = response.data as Map<String, dynamic>;
+      final userInfo = data['user_info'] as Map<String, dynamic>?;
+
+      if (userInfo == null) {
+        throw Exception('Invalid credentials');
+      }
+
+      await prefs.setString('username', username);
+      await prefs.setString('password', password);
+      await prefs.setString('server_url', 'http://rawadiptv.online');
+
+      final parsedUserInfo = UserInfo.fromJson(
+        data,
         AppConstants.serverUrl,
         username,
         password,
@@ -441,17 +454,19 @@ class _AddProfileDialogState extends State<_AddProfileDialog> {
         serverUrl: AppConstants.serverUrl,
         username: username,
         password: password,
-        expiryDate: formatUnixTimestamp(userInfo.expDate),
+        expiryDate: formatUnixTimestamp(parsedUserInfo.expDate),
         avatarLetter: username[0].toUpperCase(),
       );
 
       await ProfileService.saveProfile(profile);
 
       if (!mounted) return;
+      setState(() => _isLoading = false);
       Navigator.pop(context);
       widget.onProfileAdded();
-    } else {
+    } catch (_) {
       if (!mounted) return;
+      setState(() => _isLoading = false);
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Invalid username or password'),
