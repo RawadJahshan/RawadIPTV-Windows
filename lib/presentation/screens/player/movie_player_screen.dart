@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -202,6 +203,37 @@ class _MoviePlayerScreenState extends State<MoviePlayerScreen> {
     }
   }
 
+  Future<void> _skipBackward30() async {
+    final current = player.state.position;
+    final target = current - const Duration(seconds: 30);
+    await _seekSmart(target < Duration.zero ? Duration.zero : target);
+  }
+
+  Future<void> _skipForward30() async {
+    final current = player.state.position;
+    final duration = player.state.duration;
+    final target = current + const Duration(seconds: 30);
+    await _seekSmart(target > duration ? duration : target);
+  }
+
+  KeyEventResult _handleKeyEvent(FocusNode node, KeyEvent event) {
+    if (event is! KeyDownEvent) return KeyEventResult.ignored;
+
+    if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
+      _skipBackward30();
+      _showControlsAndResetTimer();
+      return KeyEventResult.handled;
+    }
+
+    if (event.logicalKey == LogicalKeyboardKey.arrowRight) {
+      _skipForward30();
+      _showControlsAndResetTimer();
+      return KeyEventResult.handled;
+    }
+
+    return KeyEventResult.ignored;
+  }
+
   int get _bufferPercent {
     if (_totalDuration.inMilliseconds <= 0) return 0;
     return (_buffered.inMilliseconds / _totalDuration.inMilliseconds * 100).clamp(0, 100).toInt();
@@ -274,183 +306,160 @@ class _MoviePlayerScreenState extends State<MoviePlayerScreen> {
 
     return Scaffold(
       backgroundColor: Colors.black,
-      body: MouseRegion(
-        onHover: (_) => _showControlsAndResetTimer(),
-        child: GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onTap: _showControlsAndResetTimer,
-          onPanDown: (_) => _showControlsAndResetTimer(),
-          child: Stack(
-            children: [
-              Positioned.fill(
-                child: Video(
-                  controller: controller,
-                  fit: BoxFit.contain,
-                  controls: NoVideoControls,
-                ),
-              ),
-              if (_isBuffering)
-                const Positioned.fill(
-                  child: ColoredBox(
-                    color: Colors.black26,
-                    child: Center(
-                      child: CircularProgressIndicator(),
-                    ),
-                  ),
-                ),
-              if (_isBuffering)
-                Positioned(
-                  top: 16,
-                  left: 0,
-                  right: 0,
-                  child: Center(
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                      decoration: BoxDecoration(
-                        color: Colors.black54,
-                        borderRadius: BorderRadius.circular(999),
-                      ),
-                      child: Text(
-                        'Buffering $_bufferPercent%',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 13,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              if (_hasError)
+      body: Focus(
+        autofocus: true,
+        onKeyEvent: _handleKeyEvent,
+        child: MouseRegion(
+          onHover: (_) => _showControlsAndResetTimer(),
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: _showControlsAndResetTimer,
+            onPanDown: (_) => _showControlsAndResetTimer(),
+            child: Stack(
+              children: [
                 Positioned.fill(
-                  child: ColoredBox(
-                    color: Colors.black54,
+                  child: Video(
+                    controller: controller,
+                    fit: BoxFit.contain,
+                    controls: NoVideoControls,
+                  ),
+                ),
+                if (_isBuffering)
+                  const Positioned.fill(
+                    child: ColoredBox(
+                      color: Colors.black26,
+                      child: Center(
+                        child: CircularProgressIndicator(),
+                      ),
+                    ),
+                  ),
+                if (_isBuffering)
+                  Positioned(
+                    top: 16,
+                    left: 0,
+                    right: 0,
                     child: Center(
-                      child: GestureDetector(
-                        onTap: _retryOpen,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                          decoration: BoxDecoration(
-                            color: Colors.black87,
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: Text(
-                            'Unable to play this stream. Tap to retry.',
-                            textAlign: TextAlign.center,
-                            style: const TextStyle(color: Colors.white),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: Colors.black54,
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                        child: Text(
+                          'Buffering $_bufferPercent%',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 13,
                           ),
                         ),
                       ),
                     ),
                   ),
-                ),
-              AnimatedOpacity(
-                duration: const Duration(milliseconds: 250),
-                opacity: _showControls ? 1 : 0,
-                child: IgnorePointer(
-                  ignoring: !_showControls,
-                  child: Column(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.fromLTRB(12, 14, 8, 10),
-                        color: Colors.black54,
-                        child: Row(
-                          children: [
-                            Expanded(
-                              child: Text(
-                                widget.title,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w600),
-                              ),
+                if (_hasError)
+                  Positioned.fill(
+                    child: ColoredBox(
+                      color: Colors.black54,
+                      child: Center(
+                        child: GestureDetector(
+                          onTap: _retryOpen,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                            decoration: BoxDecoration(
+                              color: Colors.black87,
+                              borderRadius: BorderRadius.circular(12),
                             ),
-                            IconButton(
-                              onPressed: () => Navigator.of(context).pop(),
-                              icon: const Icon(Icons.close, color: Colors.white),
+                            child: Text(
+                              'Unable to play this stream. Tap to retry.',
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(color: Colors.white),
                             ),
-                          ],
+                          ),
                         ),
                       ),
-                      const Spacer(),
-                      Container(
-                        padding: const EdgeInsets.fromLTRB(10, 8, 10, 12),
-                        color: Colors.black54,
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Slider(
-                              value: positionMs,
-                              max: maxMs,
-                              onChangeStart: (_) => setState(() => _isSeeking = true),
-                              onChanged: (value) {
-                                setState(() => _position = Duration(milliseconds: value.round()));
-                              },
-                              onChangeEnd: _seekWithPausePlay,
-                            ),
-                            Row(
-                              children: [
-                                Text(
-                                  '${_format(_position)} / ${_format(_totalDuration)}',
-                                  style: const TextStyle(color: Colors.white70),
+                    ),
+                  ),
+                AnimatedOpacity(
+                  duration: const Duration(milliseconds: 250),
+                  opacity: _showControls ? 1 : 0,
+                  child: IgnorePointer(
+                    ignoring: !_showControls,
+                    child: Column(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.fromLTRB(12, 14, 8, 10),
+                          color: Colors.black54,
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  widget.title,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w600),
                                 ),
-                                const Spacer(),
-                                IconButton(
-                                  onPressed: () {
-                                    if (_isPlaying) {
-                                      player.pause();
-                                    } else {
-                                      player.play();
-                                    }
-                                  },
-                                  icon: Icon(
-                                    _isPlaying ? Icons.pause_circle_filled : Icons.play_circle_fill,
-                                    size: 34,
-                                    color: Colors.white,
-                                  ),
-                                ),
-                                if (audioTracks.isNotEmpty)
-                                  PopupMenuButton<AudioTrack>(
-                                    tooltip: 'Audio tracks',
-                                    onSelected: (track) => player.setAudioTrack(track),
-                                    itemBuilder: (context) {
-                                      return List.generate(audioTracks.length, (index) {
-                                        final track = audioTracks[index];
-                                        final selected = track.id == _selectedTrack.audio.id;
-                                        return PopupMenuItem<AudioTrack>(
-                                          value: track,
-                                          child: Row(
-                                            children: [
-                                              if (selected) const Icon(Icons.check, size: 16),
-                                              if (selected) const SizedBox(width: 6),
-                                              Flexible(child: Text(_trackLabel(track, index))),
-                                            ],
-                                          ),
-                                        );
-                                      });
+                              ),
+                              IconButton(
+                                onPressed: () => Navigator.of(context).pop(),
+                                icon: const Icon(Icons.close, color: Colors.white),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const Spacer(),
+                        Container(
+                          padding: const EdgeInsets.fromLTRB(10, 8, 10, 12),
+                          color: Colors.black54,
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Slider(
+                                value: positionMs,
+                                max: maxMs,
+                                onChangeStart: (_) => setState(() => _isSeeking = true),
+                                onChanged: (value) {
+                                  setState(() => _position = Duration(milliseconds: value.round()));
+                                },
+                                onChangeEnd: _seekWithPausePlay,
+                              ),
+                              Row(
+                                children: [
+                                  IconButton(
+                                    onPressed: () {
+                                      if (_isPlaying) {
+                                        player.pause();
+                                      } else {
+                                        player.play();
+                                      }
                                     },
-                                    icon: const Icon(Icons.audiotrack, color: Colors.white),
+                                    icon: Icon(
+                                      _isPlaying ? Icons.pause_circle_filled : Icons.play_circle_fill,
+                                      size: 34,
+                                      color: Colors.white,
+                                    ),
                                   ),
-                                if (subtitleTracks.isNotEmpty)
-                                  PopupMenuButton<SubtitleTrack>(
-                                    tooltip: 'Subtitles',
-                                    onSelected: (track) => player.setSubtitleTrack(track),
-                                    itemBuilder: (context) {
-                                      final items = <PopupMenuEntry<SubtitleTrack>>[
-                                        PopupMenuItem<SubtitleTrack>(
-                                          value: SubtitleTrack.no(),
-                                          child: Row(
-                                            children: [
-                                              if (_selectedTrack.subtitle.id == 'no') const Icon(Icons.check, size: 16),
-                                              if (_selectedTrack.subtitle.id == 'no') const SizedBox(width: 6),
-                                              const Text('Off'),
-                                            ],
-                                          ),
-                                        ),
-                                      ];
-                                      items.addAll(
-                                        List.generate(subtitleTracks.length, (index) {
-                                          final track = subtitleTracks[index];
-                                          final selected = track.id == _selectedTrack.subtitle.id;
-                                          return PopupMenuItem<SubtitleTrack>(
+                                  IconButton(
+                                    icon: const Icon(Icons.replay_30, color: Colors.white),
+                                    onPressed: _skipBackward30,
+                                  ),
+                                  IconButton(
+                                    icon: const Icon(Icons.forward_30, color: Colors.white),
+                                    onPressed: _skipForward30,
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    '${_format(_position)} / ${_format(_totalDuration)}',
+                                    style: const TextStyle(color: Colors.white70),
+                                  ),
+                                  const Spacer(),
+                                  if (audioTracks.isNotEmpty)
+                                    PopupMenuButton<AudioTrack>(
+                                      tooltip: 'Audio tracks',
+                                      onSelected: (track) => player.setAudioTrack(track),
+                                      itemBuilder: (context) {
+                                        return List.generate(audioTracks.length, (index) {
+                                          final track = audioTracks[index];
+                                          final selected = track.id == _selectedTrack.audio.id;
+                                          return PopupMenuItem<AudioTrack>(
                                             value: track,
                                             child: Row(
                                               children: [
@@ -460,22 +469,58 @@ class _MoviePlayerScreenState extends State<MoviePlayerScreen> {
                                               ],
                                             ),
                                           );
-                                        }),
-                                      );
-                                      return items;
-                                    },
-                                    icon: const Icon(Icons.closed_caption, color: Colors.white),
-                                  ),
-                              ],
-                            ),
-                          ],
+                                        });
+                                      },
+                                      icon: const Icon(Icons.audiotrack, color: Colors.white),
+                                    ),
+                                  if (subtitleTracks.isNotEmpty)
+                                    PopupMenuButton<SubtitleTrack>(
+                                      tooltip: 'Subtitles',
+                                      onSelected: (track) => player.setSubtitleTrack(track),
+                                      itemBuilder: (context) {
+                                        final items = <PopupMenuEntry<SubtitleTrack>>[
+                                          PopupMenuItem<SubtitleTrack>(
+                                            value: SubtitleTrack.no(),
+                                            child: Row(
+                                              children: [
+                                                if (_selectedTrack.subtitle.id == 'no') const Icon(Icons.check, size: 16),
+                                                if (_selectedTrack.subtitle.id == 'no') const SizedBox(width: 6),
+                                                const Text('Off'),
+                                              ],
+                                            ),
+                                          ),
+                                        ];
+                                        items.addAll(
+                                          List.generate(subtitleTracks.length, (index) {
+                                            final track = subtitleTracks[index];
+                                            final selected = track.id == _selectedTrack.subtitle.id;
+                                            return PopupMenuItem<SubtitleTrack>(
+                                              value: track,
+                                              child: Row(
+                                                children: [
+                                                  if (selected) const Icon(Icons.check, size: 16),
+                                                  if (selected) const SizedBox(width: 6),
+                                                  Flexible(child: Text(_trackLabel(track, index))),
+                                                ],
+                                              ),
+                                            );
+                                          }),
+                                        );
+                                        return items;
+                                      },
+                                      icon: const Icon(Icons.closed_caption, color: Colors.white),
+                                    ),
+                                ],
+                              ),
+                            ],
+                          ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
