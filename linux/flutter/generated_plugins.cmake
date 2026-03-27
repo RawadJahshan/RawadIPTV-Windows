@@ -3,7 +3,9 @@
 #
 
 list(APPEND FLUTTER_PLUGIN_LIST
+  dart_vlc
   media_kit_video
+  url_launcher_linux
   volume_controller
 )
 

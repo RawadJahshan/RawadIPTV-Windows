@@ -45,6 +45,9 @@ dependencies:
   media_kit_libs_windows_video: ^1.0.4
   url_launcher: ^6.3.2
 
+dependency_overrides:
+  audio_video_progress_bar: ^2.0.0
+  
 dev_dependencies:
   flutter_test:
     sdk: flutter
