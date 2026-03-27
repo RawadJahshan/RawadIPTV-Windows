@@ -37,9 +37,7 @@ class _MoviePlayerScreenState extends State<MoviePlayerScreen> {
   Duration _duration = Duration.zero;
   Timer? _progressTimer;
   List<String> _audioTracks = [];
-  List<String> _subtitleTracks = [];
   int _selectedAudioTrack = 0;
-  int _selectedSubtitleTrack = -1;
 
   @override
   void initState() {
@@ -84,13 +82,9 @@ class _MoviePlayerScreenState extends State<MoviePlayerScreen> {
     _player.currentStream.listen((current) {
       if (!mounted) return;
       final audioCount = _player.audioTrackCount;
-      final subCount = _player.subtitleCount;
       setState(() {
         _audioTracks = audioCount > 0
             ? List.generate(audioCount, (i) => 'Audio Track ${i + 1}')
-            : [];
-        _subtitleTracks = subCount > 0
-            ? List.generate(subCount, (i) => 'Subtitle ${i + 1}')
             : [];
       });
     });
@@ -389,66 +383,6 @@ class _MoviePlayerScreenState extends State<MoviePlayerScreen> {
                                                         ),
                                                       ))
                                                   .toList(),
-                                            ),
-                                          if (_subtitleTracks.isNotEmpty)
-                                            PopupMenuButton<int>(
-                                              tooltip: 'Subtitles',
-                                              icon: const Icon(
-                                                Icons.closed_caption,
-                                                color: Colors.white,
-                                              ),
-                                              onSelected: (index) {
-                                                _player.setSubtitleTrack(index);
-                                                setState(() =>
-                                                    _selectedSubtitleTrack =
-                                                        index);
-                                              },
-                                              itemBuilder: (_) => [
-                                                PopupMenuItem(
-                                                  value: -1,
-                                                  child: Row(
-                                                    children: [
-                                                      if (_selectedSubtitleTrack ==
-                                                          -1)
-                                                        const Padding(
-                                                          padding:
-                                                              EdgeInsets.only(
-                                                                  right: 8),
-                                                          child: Icon(
-                                                            Icons.check,
-                                                            size: 16,
-                                                          ),
-                                                        ),
-                                                      const Text('Off'),
-                                                    ],
-                                                  ),
-                                                ),
-                                                ..._subtitleTracks
-                                                    .asMap()
-                                                    .entries
-                                                    .map(
-                                                      (e) => PopupMenuItem(
-                                                        value: e.key,
-                                                        child: Row(
-                                                          children: [
-                                                            if (_selectedSubtitleTrack ==
-                                                                e.key)
-                                                              const Padding(
-                                                                padding: EdgeInsets
-                                                                    .only(
-                                                                        right:
-                                                                            8),
-                                                                child: Icon(
-                                                                  Icons.check,
-                                                                  size: 16,
-                                                                ),
-                                                              ),
-                                                            Text(e.value),
-                                                          ],
-                                                        ),
-                                                      ),
-                                                    ),
-                                              ],
                                             ),
                                           IconButton(
                                             icon: Icon(
