@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../core/constants/app_colors.dart';
-import '../../../data/services/cache_maintenance_service.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -16,14 +16,37 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _clearCache() async {
     if (_isClearingCache) return;
     setState(() => _isClearingCache = true);
+
     try {
-      await CacheMaintenanceService.clearAppCaches();
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Cache cleared: metadata and image cache.'),
-        ),
-      );
+      final prefs = await SharedPreferences.getInstance();
+
+      // Save login credentials before clearing
+      final username = prefs.getString('username');
+      final password = prefs.getString('password');
+      final serverUrl = prefs.getString('server_url');
+
+      // Clear everything
+      await prefs.clear();
+
+      // Restore login credentials
+      if (username != null) {
+        await prefs.setString('username', username);
+      }
+      if (password != null) {
+        await prefs.setString('password', password);
+      }
+      if (serverUrl != null) {
+        await prefs.setString('server_url', serverUrl);
+      }
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Cache cleared successfully'),
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
     } catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -33,6 +56,37 @@ class _SettingsScreenState extends State<SettingsScreen> {
       if (mounted) {
         setState(() => _isClearingCache = false);
       }
+    }
+  }
+
+  Future<void> _onClearCacheTapped() async {
+    if (_isClearingCache) return;
+
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Clear Cache'),
+        content: const Text(
+          'This will clear your watch history, '
+          'favorites, and all cached data. '
+          'Your login will be kept. '
+          'Are you sure?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Clear'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      await _clearCache();
     }
   }
 
@@ -50,7 +104,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
           Card(
             child: ListTile(
               title: const Text('Clear Cache'),
-              subtitle: const Text('Clears in-memory metadata and image cache.'),
+              subtitle: const Text(
+                'Clears watch history, favorites, and cached data. Keeps login.',
+              ),
               trailing: _isClearingCache
                   ? const SizedBox(
                       width: 20,
@@ -58,7 +114,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
                   : const Icon(Icons.cleaning_services_outlined),
-              onTap: _isClearingCache ? null : _clearCache,
+              onTap: _isClearingCache ? null : _onClearCacheTapped,
             ),
           ),
         ],
