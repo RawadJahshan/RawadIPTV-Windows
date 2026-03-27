@@ -107,8 +107,33 @@ class _MoviePlayerScreenState extends State<MoviePlayerScreen> {
     });
 
     if (widget.startAt != null && widget.startAt! > Duration.zero) {
-      await Future<void>.delayed(const Duration(seconds: 2));
-      _player.seek(widget.startAt!);
+      // Wait for position to start moving before seeking
+      late StreamSubscription sub;
+      sub = _player.positionStream.listen((pos) {
+        if (pos.position != null &&
+            pos.position! > Duration.zero &&
+            pos.duration != null &&
+            pos.duration! > Duration.zero) {
+          sub.cancel();
+          // Small delay to ensure player is stable
+          Future<void>.delayed(
+            const Duration(milliseconds: 500), () {
+            if (mounted) {
+              _player.seek(widget.startAt!);
+            }
+          });
+        }
+      });
+
+      // Safety timeout — seek anyway after 8 seconds
+      Future<void>.delayed(const Duration(seconds: 8), () {
+        if (mounted &&
+            _player.position.position != null &&
+            widget.startAt != null) {
+          sub.cancel();
+          _player.seek(widget.startAt!);
+        }
+      });
     }
 
     _progressTimer = Timer.periodic(
