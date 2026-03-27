@@ -89,17 +89,21 @@ class _MoviePlayerScreenState extends State<MoviePlayerScreen> {
   }
 
   Future<void> _refreshSubtitleTracks() async {
-    final tracks = _player.subtitleTracks;
-    final audioCount = _player.audioTrackCount;
-    debugPrint(
-      '[Player] refreshed: subs=${tracks.map((t) => '${t.id}:${t.name}').toList()} audio=$audioCount',
-    );
-    if (!mounted) return;
-    setState(() {
-      _subtitleTracks = tracks;
-      _audioTrackCount = audioCount;
-    });
+  debugPrint('[Tracks] audioTrackCount: ${_player.audioTrackCount}');
+  debugPrint('[Tracks] subtitleTrack: ${_player.subtitleTrack}');
+  
+  final tracks = _player.subtitleTracks;
+  debugPrint('[Tracks] subtitleTracks count: ${tracks.length}');
+  for (final t in tracks) {
+    debugPrint('[Tracks] track: id=${t.id} name=${t.name}');
   }
+  
+  if (!mounted) return;
+  setState(() {
+    _subtitleTracks = tracks;
+    _audioTrackCount = _player.audioTrackCount;
+  });
+}
 
   void _attachPlayerListeners({Duration? resumeAt}) {
     _player.positionStream.listen((pos) {
