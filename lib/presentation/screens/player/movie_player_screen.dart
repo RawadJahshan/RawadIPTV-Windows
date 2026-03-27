@@ -1,8 +1,10 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:dart_vlc/dart_vlc.dart';
 import '../../../data/services/watch_progress_service.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:window_manager/window_manager.dart';
 
 class MoviePlayerScreen extends StatefulWidget {
@@ -11,6 +13,8 @@ class MoviePlayerScreen extends StatefulWidget {
   final int streamId;
   final Duration? startAt;
   final String? poster;
+  final int? seriesId;
+  final String? seriesName;
 
   const MoviePlayerScreen({
     super.key,
@@ -19,6 +23,8 @@ class MoviePlayerScreen extends StatefulWidget {
     required this.streamId,
     this.poster,
     this.startAt,
+    this.seriesId,
+    this.seriesName,
   });
 
   @override
@@ -120,6 +126,20 @@ class _MoviePlayerScreenState extends State<MoviePlayerScreen> {
       positionMs: _position.inMilliseconds,
       durationMs: _duration.inMilliseconds,
     );
+
+    if (widget.seriesId != null && widget.seriesName != null) {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(
+        'series_episode_meta_${widget.streamId}',
+        jsonEncode({
+          'seriesId': widget.seriesId,
+          'seriesName': widget.seriesName,
+          'episodeTitle': widget.title,
+          'poster': widget.poster,
+          'streamId': widget.streamId,
+        }),
+      );
+    }
   }
 
   void _scheduleHide() {

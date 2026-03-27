@@ -162,6 +162,46 @@ class XtreamApi {
     );
   }
 
+
+  Future<List<Map<String, dynamic>>> getSeriesCategories() async {
+    try {
+      return await _getListWithCache('$_baseUrl&action=get_series_categories');
+    } catch (e) {
+      debugPrint('getSeriesCategories error: $e');
+      return [];
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> getSeries({int? categoryId}) async {
+    try {
+      var url = '$_baseUrl&action=get_series';
+      if (categoryId != null) {
+        url += '&category_id=$categoryId';
+      }
+      return await _getListWithCache(
+        url,
+        options: Options(receiveTimeout: const Duration(seconds: 60)),
+      );
+    } catch (e) {
+      debugPrint('getSeries error: $e');
+      return [];
+    }
+  }
+
+  Future<Map<String, dynamic>> getSeriesInfo(int seriesId) async {
+    final url = '$_baseUrl&action=get_series_info&series_id=$seriesId';
+    try {
+      final response = await _dio.get(url);
+      if (response.data is Map) {
+        return Map<String, dynamic>.from(response.data as Map);
+      }
+      return <String, dynamic>{};
+    } catch (e) {
+      debugPrint('getSeriesInfo error: $e');
+      return <String, dynamic>{};
+    }
+  }
+
   Future<Map<String, dynamic>> getVodInfo(int vodId) async {
     final url = '$_baseUrl&action=get_vod_info&vod_id=$vodId';
     try {
