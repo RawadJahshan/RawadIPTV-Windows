@@ -101,8 +101,8 @@ packages:
     dependency: "direct main"
     description:
       path: "."
-      ref: master
-      resolved-ref: f666fe74a6530c2c34e8365b0fdb73984abed97c
+      ref: cb4dcc47fc87beb149ecff78b19428babb096c99
+      resolved-ref: cb4dcc47fc87beb149ecff78b19428babb096c99
       url: "https://github.com/RawadJahshan/dart_vlc.git"
     source: git
     version: "0.4.0"
@@ -110,8 +110,8 @@ packages:
     dependency: "direct overridden"
     description:
       path: ffi
-      ref: master
-      resolved-ref: f666fe74a6530c2c34e8365b0fdb73984abed97c
+      ref: cb4dcc47fc87beb149ecff78b19428babb096c99
+      resolved-ref: cb4dcc47fc87beb149ecff78b19428babb096c99
       url: "https://github.com/RawadJahshan/dart_vlc.git"
     source: git
     version: "0.2.0"

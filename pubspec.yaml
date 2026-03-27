@@ -41,7 +41,7 @@ dependencies:
   dart_vlc:
     git:
       url: https://github.com/RawadJahshan/dart_vlc.git
-      ref: master
+      ref: cb4dcc47fc87beb149ecff78b19428babb096c99
   intl: ^0.20.2
   video_player: ^2.5.1
   media_kit: ^1.1.10
@@ -55,7 +55,7 @@ dependency_overrides:
   dart_vlc_ffi:
     git:
       url: https://github.com/RawadJahshan/dart_vlc.git
-      ref: master
+      ref: cb4dcc47fc87beb149ecff78b19428babb096c99
       path: ffi
   
 dev_dependencies:
