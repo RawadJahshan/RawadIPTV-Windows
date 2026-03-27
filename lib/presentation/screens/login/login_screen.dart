@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../data/datasources/remote/xtream_api.dart';
 import '../../../data/models/user_info.dart';
@@ -65,9 +66,10 @@ class _LoginScreenState extends State<LoginScreen> {
     if (result['success']) {
       // Save credentials locally
       final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('serverUrl', serverUrl);
-      await prefs.setString('username', username);
-      await prefs.setString('password', password);
+      await prefs.setString('server_url', serverUrl);
+      const storage = FlutterSecureStorage();
+      await storage.write(key: 'username', value: username);
+      await storage.write(key: 'password', value: password);
 
       // Create UserInfo object
       final userInfo = UserInfo.fromJson(

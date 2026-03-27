@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import '../../../core/constants/app_colors.dart';
 
@@ -21,8 +22,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
       final prefs = await SharedPreferences.getInstance();
 
       // Save login credentials before clearing
-      final username = prefs.getString('username');
-      final password = prefs.getString('password');
+      const storage = FlutterSecureStorage();
+      final username = await storage.read(key: 'username');
+      final password = await storage.read(key: 'password');
       final serverUrl = prefs.getString('server_url');
 
       // Clear everything
@@ -30,10 +32,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
       // Restore login credentials
       if (username != null) {
-        await prefs.setString('username', username);
+        await storage.write(key: 'username', value: username);
       }
       if (password != null) {
-        await prefs.setString('password', password);
+        await storage.write(key: 'password', value: password);
       }
       if (serverUrl != null) {
         await prefs.setString('server_url', serverUrl);
