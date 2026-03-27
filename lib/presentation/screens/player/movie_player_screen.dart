@@ -108,7 +108,7 @@ class _MoviePlayerScreenState extends State<MoviePlayerScreen> {
             ? List.generate(audioCount, (i) => 'Audio Track ${i + 1}')
             : [];
         _subtitleTracks = subtitleTracks;
-        _selectedSubtitleTrackId = currentSubtitle?.id;
+        _selectedSubtitleTrackId = currentSubtitle;
       });
     });
 
