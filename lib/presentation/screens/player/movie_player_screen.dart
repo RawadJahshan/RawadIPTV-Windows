@@ -38,6 +38,15 @@ class _MoviePlayerScreenState extends State<MoviePlayerScreen> {
   Timer? _progressTimer;
   List<String> _audioTracks = [];
   int _selectedAudioTrack = 0;
+  int _aspectRatioIndex = 0;
+
+  final List<Map<String, dynamic>> _aspectRatios = [
+    {'label': 'Auto', 'ratio': BoxFit.contain},
+    {'label': 'Fill', 'ratio': BoxFit.fill},
+    {'label': 'Cover', 'ratio': BoxFit.cover},
+    {'label': '16:9', 'ratio': BoxFit.fitWidth},
+    {'label': '4:3', 'ratio': BoxFit.fitHeight},
+  ];
 
   @override
   void initState() {
@@ -149,9 +158,14 @@ class _MoviePlayerScreenState extends State<MoviePlayerScreen> {
   }
 
   Future<void> _toggleFullscreen() async {
-    final newValue = !_isFullscreen;
-    setState(() => _isFullscreen = newValue);
-    await WindowManager.instance.setFullScreen(newValue);
+    try {
+      final newValue = !_isFullscreen;
+      setState(() => _isFullscreen = newValue);
+      await WindowManager.instance.setFullScreen(newValue);
+    } catch (e) {
+      debugPrint('[Player] fullscreen error: $e');
+      setState(() => _isFullscreen = false);
+    }
   }
 
   Future<void> _exitFullscreen() async {
@@ -206,7 +220,7 @@ class _MoviePlayerScreenState extends State<MoviePlayerScreen> {
                 Positioned.fill(
                   child: Video(
                     player: _player,
-                    fit: BoxFit.contain,
+                    fit: _aspectRatios[_aspectRatioIndex]['ratio'] as BoxFit,
                     showControls: false,
                   ),
                 ),
@@ -384,6 +398,42 @@ class _MoviePlayerScreenState extends State<MoviePlayerScreen> {
                                                       ))
                                                   .toList(),
                                             ),
+                                          PopupMenuButton<int>(
+                                            tooltip: 'Aspect Ratio',
+                                            icon: const Icon(
+                                              Icons.aspect_ratio,
+                                              color: Colors.white,
+                                            ),
+                                            onSelected: (index) {
+                                              setState(
+                                                  () => _aspectRatioIndex = index);
+                                            },
+                                            itemBuilder: (_) => _aspectRatios
+                                                .asMap()
+                                                .entries
+                                                .map(
+                                                  (e) => PopupMenuItem(
+                                                    value: e.key,
+                                                    child: Row(
+                                                      children: [
+                                                        if (_aspectRatioIndex ==
+                                                            e.key)
+                                                          const Padding(
+                                                            padding:
+                                                                EdgeInsets.only(
+                                                                    right: 8),
+                                                            child: Icon(
+                                                                Icons.check,
+                                                                size: 16),
+                                                          ),
+                                                        Text(e.value['label']
+                                                            as String),
+                                                      ],
+                                                    ),
+                                                  ),
+                                                )
+                                                .toList(),
+                                          ),
                                           IconButton(
                                             icon: Icon(
                                               _isFullscreen
