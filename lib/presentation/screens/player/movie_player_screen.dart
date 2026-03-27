@@ -51,6 +51,8 @@ class _MoviePlayerScreenState extends State<MoviePlayerScreen> {
   int? _selectedSubtitleTrackId;
   Timer? _subtitleRetryTimer;
   int _subtitleRetryAttempts = 0;
+  static const int _maxSubtitleRetryAttempts = 6;
+  static const Duration _subtitleRetryDelay = Duration(milliseconds: 700);
   int _aspectRatioIndex = 0;
 
   final List<Map<String, dynamic>> _aspectRatios = [
@@ -92,6 +94,9 @@ class _MoviePlayerScreenState extends State<MoviePlayerScreen> {
         _isPlaying = playback.isPlaying;
         _isBuffering = !playback.isPlaying && !playback.isCompleted;
       });
+      if (playback.isPlaying) {
+        _refreshSubtitleState(trigger: 'playback:isPlaying');
+      }
     });
 
     _player.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64)');
@@ -101,8 +106,15 @@ class _MoviePlayerScreenState extends State<MoviePlayerScreen> {
       autoStart: true,
     );
 
-    _refreshSubtitleState();
-    _scheduleSubtitleRetry();
+    _refreshSubtitleState(trigger: 'after-open');
+    Future<void>.delayed(const Duration(milliseconds: 300), () {
+      if (!mounted) return;
+      _refreshSubtitleState(trigger: 'post-open-300ms');
+    });
+    Future<void>.delayed(const Duration(milliseconds: 1200), () {
+      if (!mounted) return;
+      _refreshSubtitleState(trigger: 'post-open-1200ms');
+    });
 
     _player.currentStream.listen((current) {
       if (!mounted) return;
@@ -112,7 +124,7 @@ class _MoviePlayerScreenState extends State<MoviePlayerScreen> {
             ? List.generate(audioCount, (i) => 'Audio Track ${i + 1}')
             : [];
       });
-      _refreshSubtitleState();
+      _refreshSubtitleState(trigger: 'currentStream-update');
     });
 
     if (widget.startAt != null && widget.startAt! > Duration.zero) {
@@ -126,10 +138,21 @@ class _MoviePlayerScreenState extends State<MoviePlayerScreen> {
     _scheduleHide();
   }
 
-  void _refreshSubtitleState() {
+  void _refreshSubtitleState({required String trigger}) {
     if (!mounted) return;
     final subtitleTracks = _player.subtitleTracks;
     final currentSubtitle = _player.subtitleTrack;
+    final trackSummary = subtitleTracks
+        .map((track) => '${track.id}:${track.name}')
+        .join(', ');
+
+    debugPrint(
+      '[Subtitle] refresh trigger=$trigger '
+      'attempt=$_subtitleRetryAttempts/$_maxSubtitleRetryAttempts '
+      'tracks=${subtitleTracks.length} '
+      'currentTrack=$currentSubtitle '
+      'items=[$trackSummary]',
+    );
 
     setState(() {
       _subtitleTracks = subtitleTracks;
@@ -140,21 +163,30 @@ class _MoviePlayerScreenState extends State<MoviePlayerScreen> {
     });
 
     if (_subtitleTracks.isEmpty) {
-      _scheduleSubtitleRetry();
+      _scheduleSubtitleRetry(reason: trigger);
     } else {
       _subtitleRetryAttempts = 0;
       _subtitleRetryTimer?.cancel();
+      debugPrint('[Subtitle] tracks available, retry timer cancelled');
     }
   }
 
-  void _scheduleSubtitleRetry() {
-    if (_subtitleRetryAttempts >= 2) return;
+  void _scheduleSubtitleRetry({required String reason}) {
+    if (_subtitleRetryAttempts >= _maxSubtitleRetryAttempts) {
+      debugPrint(
+          '[Subtitle] retry skipped (max reached) reason=$reason attempts=$_subtitleRetryAttempts');
+      return;
+    }
     _subtitleRetryTimer?.cancel();
     _subtitleRetryAttempts++;
-    _subtitleRetryTimer = Timer(const Duration(seconds: 2), () {
+    debugPrint(
+      '[Subtitle] scheduling retry #$_subtitleRetryAttempts '
+      'after ${_subtitleRetryDelay.inMilliseconds}ms reason=$reason',
+    );
+    _subtitleRetryTimer = Timer(_subtitleRetryDelay, () {
       if (!mounted) return;
       if (_subtitleTracks.isEmpty) {
-        _refreshSubtitleState();
+        _refreshSubtitleState(trigger: 'retry-$_subtitleRetryAttempts');
       }
     });
   }
@@ -474,18 +506,15 @@ class _MoviePlayerScreenState extends State<MoviePlayerScreen> {
                                               await _player
                                                   .setSubtitleTrack(trackId);
                                               if (!mounted) return;
-                                              setState(() {
-                                                _selectedSubtitleTrackId =
-                                                    trackId;
-                                              });
+                                              _refreshSubtitleState(
+                                                  trigger: 'user-select-$trackId');
                                             },
                                             onDisable: () async {
                                               await _player
                                                   .disableSubtitleTrack();
                                               if (!mounted) return;
-                                              setState(() {
-                                                _selectedSubtitleTrackId = null;
-                                              });
+                                              _refreshSubtitleState(
+                                                  trigger: 'user-disable');
                                             },
                                           ),
                                           PopupMenuButton<int>(
