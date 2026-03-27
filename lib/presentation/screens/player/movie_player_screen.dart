@@ -64,14 +64,10 @@ class _MoviePlayerScreenState extends State<MoviePlayerScreen> {
       setState(() => _isBuffering = !playback.isPlaying && !playback.isCompleted);
     });
 
-    await _player.open(
-      Media.network(
-        widget.streamUrl,
-        extras: {
-          'http-user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
-          'http-reconnect': 'true',
-        },
-      ),
+    _player.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64)');
+
+    _player.open(
+      Media.network(widget.streamUrl),
       autoStart: true,
     );
 
@@ -325,80 +321,15 @@ class _MoviePlayerScreenState extends State<MoviePlayerScreen> {
                                                 color: Colors.white),
                                             onPressed: () => _skip(30),
                                           ),
-                                          // Audio tracks
+                                          // Audio tracks (hidden for now)
                                           StreamBuilder<CurrentState>(
                                             stream: _player.currentStream,
                                             builder: (context, snap) {
-                                              final tracks = snap
-                                                      .data?.media?.tracks
-                                                      ?.where((t) =>
-                                                          t.trackType ==
-                                                          'Audio')
-                                                      .toList() ??
-                                                  [];
-                                              if (tracks.isEmpty) {
-                                                return const SizedBox.shrink();
-                                              }
-                                              return PopupMenuButton<int>(
-                                                icon: const Icon(
-                                                    Icons.audiotrack,
-                                                    color: Colors.white),
-                                                onSelected: (i) =>
-                                                    _player.setAudioTrack(i),
-                                                itemBuilder: (_) => tracks
-                                                    .asMap()
-                                                    .entries
-                                                    .map((e) => PopupMenuItem(
-                                                          value: e.key,
-                                                          child: Text(e.value
-                                                                  .trackDescription ??
-                                                              'Audio ${e.key + 1}'),
-                                                        ))
-                                                    .toList(),
-                                              );
+                                              return const SizedBox.shrink();
                                             },
                                           ),
-                                          // Subtitles
-                                          StreamBuilder<CurrentState>(
-                                            stream: _player.currentStream,
-                                            builder: (context, snap) {
-                                              final tracks = snap
-                                                      .data?.media?.tracks
-                                                      ?.where((t) =>
-                                                          t.trackType == 'Text')
-                                                      .toList() ??
-                                                  [];
-                                              if (tracks.isEmpty) {
-                                                return const SizedBox.shrink();
-                                              }
-                                              return PopupMenuButton<int>(
-                                                icon: const Icon(
-                                                    Icons.closed_caption,
-                                                    color: Colors.white),
-                                                onSelected: (i) => i == -1
-                                                    ? _player
-                                                        .setSubtitleTrack(-1)
-                                                    : _player
-                                                        .setSubtitleTrack(i),
-                                                itemBuilder: (_) => [
-                                                  const PopupMenuItem(
-                                                    value: -1,
-                                                    child: Text('Off'),
-                                                  ),
-                                                  ...tracks
-                                                      .asMap()
-                                                      .entries
-                                                      .map((e) =>
-                                                          PopupMenuItem(
-                                                            value: e.key,
-                                                            child: Text(e.value
-                                                                    .trackDescription ??
-                                                                'Sub ${e.key + 1}'),
-                                                          )),
-                                                ],
-                                              );
-                                            },
-                                          ),
+                                          // Subtitles (hidden for now)
+                                          const SizedBox.shrink(),
                                         ],
                                       ),
                                     ),
