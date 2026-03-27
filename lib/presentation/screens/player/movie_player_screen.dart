@@ -78,7 +78,7 @@ class _MoviePlayerScreenState extends State<MoviePlayerScreen> {
 
     _player.currentStream.listen((current) {
       if (!mounted) return;
-      final subCount = _player.subtitleCount;
+      final subCount = _getSubtitleTrackCount();
       final audioCount = _player.audioTrackCount;
       setState(() {
         _audioTracks = audioCount > 0
@@ -143,6 +143,23 @@ class _MoviePlayerScreenState extends State<MoviePlayerScreen> {
     _player.seek(target);
   }
 
+  int _getSubtitleTrackCount() {
+    final dynamic player = _player;
+    try {
+      final count = player.spuCount;
+      if (count is int) return count;
+    } catch (_) {}
+    try {
+      final count = player.subtitleTrackCount;
+      if (count is int) return count;
+    } catch (_) {}
+    try {
+      final count = player.subtitleCount;
+      if (count is int) return count;
+    } catch (_) {}
+    return 0;
+  }
+
   Future<void> _reopenWithSettings({
     required Duration startAt,
     required int subTrack,
@@ -173,7 +190,7 @@ class _MoviePlayerScreenState extends State<MoviePlayerScreen> {
 
     _player.currentStream.listen((current) {
       if (!mounted) return;
-      final subCount = _player.subtitleCount;
+      final subCount = _getSubtitleTrackCount();
       final audioCount = _player.audioTrackCount;
       setState(() {
         _audioTracks = audioCount > 0
