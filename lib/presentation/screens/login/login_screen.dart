@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../../../core/constants/app_colors.dart';
+import '../../../core/constants/app_constants.dart';
 import '../../../data/datasources/remote/xtream_api.dart';
 import '../../../data/models/user_info.dart';
 import '../home/home_dashboard.dart';
@@ -27,7 +28,6 @@ String formatUnixTimestamp(String unixTimestamp) {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
-  final _serverController = TextEditingController();
   final _usernameController = TextEditingController();
   final _passwordController = TextEditingController();
   final _api = XtreamApi();
@@ -36,21 +36,19 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   void dispose() {
-    _serverController.dispose();
     _usernameController.dispose();
     _passwordController.dispose();
     super.dispose();
   }
 
   void _login() async {
-    final serverUrl = _serverController.text.trim();
     final username = _usernameController.text.trim();
     final password = _passwordController.text.trim();
 
-    if (serverUrl.isEmpty || username.isEmpty || password.isEmpty) {
+    if (username.isEmpty || password.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Please fill all fields'),
+          content: Text('Please enter username and password'),
           backgroundColor: AppColors.highlight,
         ),
       );
@@ -59,14 +57,20 @@ class _LoginScreenState extends State<LoginScreen> {
 
     setState(() => _isLoading = true);
 
-    final result = await _api.authenticate(serverUrl, username, password);
+    final result = await _api.authenticate(
+      AppConstants.serverUrl,
+      username,
+      password,
+    );
 
     setState(() => _isLoading = false);
 
     if (result['success']) {
       // Save credentials locally
       final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('server_url', serverUrl);
+      await prefs.setString('username', username);
+      await prefs.setString('password', password);
+      await prefs.setString('server_url', AppConstants.serverUrl);
       const storage = FlutterSecureStorage();
       await storage.write(key: 'username', value: username);
       await storage.write(key: 'password', value: password);
@@ -74,7 +78,7 @@ class _LoginScreenState extends State<LoginScreen> {
       // Create UserInfo object
       final userInfo = UserInfo.fromJson(
         result['data'],
-        serverUrl,
+        AppConstants.serverUrl,
         username,
         password,
       );
@@ -82,7 +86,7 @@ class _LoginScreenState extends State<LoginScreen> {
       // Setup XtreamApi with credentials for further requests
       final xtreamApi = XtreamApi();
       xtreamApi.setCredentials(
-        serverUrl: serverUrl,
+        serverUrl: AppConstants.serverUrl,
         username: username,
         password: password,
       );
@@ -103,8 +107,8 @@ class _LoginScreenState extends State<LoginScreen> {
     } else {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(result['message'] ?? 'Login failed'),
+        const SnackBar(
+          content: Text('Invalid username or password'),
           backgroundColor: Colors.redAccent,
         ),
       );
@@ -165,34 +169,6 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                 ),
                 const SizedBox(height: 40),
-                TextField(
-                  controller: _serverController,
-                  style: const TextStyle(color: AppColors.textPrimary),
-                  decoration: InputDecoration(
-                    labelText: 'Server URL',
-                    hintText: 'http://server.com:port',
-                    hintStyle: const TextStyle(color: AppColors.textHint),
-                    labelStyle: const TextStyle(color: AppColors.textSecondary),
-                    prefixIcon: const Icon(
-                      Icons.dns,
-                      color: AppColors.highlight,
-                    ),
-                    filled: true,
-                    fillColor: AppColors.primary,
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: BorderSide.none,
-                    ),
-                    focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: const BorderSide(
-                        color: AppColors.highlight,
-                        width: 2,
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 16),
                 TextField(
                   controller: _usernameController,
                   style: const TextStyle(color: AppColors.textPrimary),

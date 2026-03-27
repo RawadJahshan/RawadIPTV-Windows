@@ -1,5 +1,6 @@
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
+import '../../../core/constants/app_constants.dart';
 
 class XtreamApi {
   late final Dio _dio;
@@ -59,10 +60,7 @@ class XtreamApi {
     required String username,
     required String password,
   }) {
-    if (serverUrl.endsWith('/')) {
-      serverUrl = serverUrl.substring(0, serverUrl.length - 1);
-    }
-    _serverUrl = serverUrl;
+    _serverUrl = AppConstants.serverUrl;
     _username = username;
     _password = password;
   }
@@ -86,19 +84,17 @@ class XtreamApi {
     String password,
   ) async {
     try {
-      if (serverUrl.endsWith('/')) {
-        serverUrl = serverUrl.substring(0, serverUrl.length - 1);
-      }
-      final url = '$serverUrl/player_api.php?username=$username&password=$password';
+      final url = '${AppConstants.apiBase}?username=$username&password=$password&action=get_live_categories';
       final response = await _dio.get(url);
       if (response.statusCode == 200) {
         return {'success': true, 'data': response.data};
       }
-      return {'success': false, 'message': 'Invalid credentials'};
+      return {'success': false, 'message': 'Invalid username or password'};
     } on DioException catch (e) {
-      return {'success': false, 'message': e.message ?? 'Connection failed'};
+      debugPrint('Auth error: ${e.message}');
+      return {'success': false, 'message': 'Invalid username or password'};
     } catch (e) {
-      return {'success': false, 'message': 'Something went wrong'};
+      return {'success': false, 'message': 'Invalid username or password'};
     }
   }
 
