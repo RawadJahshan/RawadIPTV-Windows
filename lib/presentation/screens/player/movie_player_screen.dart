@@ -96,15 +96,21 @@ class _MoviePlayerScreenState extends State<MoviePlayerScreen> {
       });
       if (playback.isPlaying) {
         _refreshSubtitleState(trigger: 'playback:isPlaying');
+        Future<void>.delayed(const Duration(milliseconds: 500), () {
+          if (!mounted) return;
+          _refreshSubtitleState(trigger: 'playback:isPlaying+500ms');
+        });
       }
     });
 
     _player.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64)');
 
-    _player.open(
-      Media.network(widget.streamUrl),
-      autoStart: true,
+    final isLocalMedia = _isLikelyLocalMediaSource(widget.streamUrl);
+    final media = _buildMedia(widget.streamUrl);
+    debugPrint(
+      '[Subtitle] opening media source=${widget.streamUrl} mode=${isLocalMedia ? 'file' : 'network'}',
     );
+    _player.open(media, autoStart: true);
 
     _refreshSubtitleState(trigger: 'after-open');
     Future<void>.delayed(const Duration(milliseconds: 300), () {
@@ -141,7 +147,8 @@ class _MoviePlayerScreenState extends State<MoviePlayerScreen> {
   void _refreshSubtitleState({required String trigger}) {
     if (!mounted) return;
     final subtitleTracks = _player.subtitleTracks;
-    final currentSubtitle = _player.subtitleTrack;
+    final currentSubtitleRaw = _player.subtitleTrack;
+    final currentSubtitleId = _extractSubtitleTrackId(currentSubtitleRaw);
     final trackSummary = subtitleTracks
         .map((track) => '${track.id}:${track.name}')
         .join(', ');
@@ -150,15 +157,17 @@ class _MoviePlayerScreenState extends State<MoviePlayerScreen> {
       '[Subtitle] refresh trigger=$trigger '
       'attempt=$_subtitleRetryAttempts/$_maxSubtitleRetryAttempts '
       'tracks=${subtitleTracks.length} '
-      'currentTrack=$currentSubtitle '
+      'currentTrackRaw=$currentSubtitleRaw '
+      'currentTrackRawType=${currentSubtitleRaw.runtimeType} '
+      'currentTrackId=$currentSubtitleId '
       'items=[$trackSummary]',
     );
 
     setState(() {
       _subtitleTracks = subtitleTracks;
       _selectedSubtitleTrackId = subtitleTracks
-              .any((track) => track.id == currentSubtitle)
-          ? currentSubtitle
+              .any((track) => track.id == currentSubtitleId)
+          ? currentSubtitleId
           : null;
     });
 
@@ -189,6 +198,32 @@ class _MoviePlayerScreenState extends State<MoviePlayerScreen> {
         _refreshSubtitleState(trigger: 'retry-$_subtitleRetryAttempts');
       }
     });
+  }
+
+  Media _buildMedia(String source) {
+    if (_isLikelyLocalMediaSource(source)) {
+      if (source.startsWith('file://')) {
+        return Media.file(Uri.parse(source).toFilePath());
+      }
+      return Media.file(source);
+    }
+    return Media.network(source);
+  }
+
+  bool _isLikelyLocalMediaSource(String source) {
+    final uri = Uri.tryParse(source);
+    if (uri != null && uri.hasScheme) {
+      return uri.scheme == 'file';
+    }
+    if (source.startsWith(r'\\')) return true;
+    return RegExp(r'^[A-Za-z]:\\').hasMatch(source) || source.startsWith('/');
+  }
+
+  int? _extractSubtitleTrackId(dynamic subtitleTrackValue) {
+    if (subtitleTrackValue == null) return null;
+    if (subtitleTrackValue is int) return subtitleTrackValue;
+    if (subtitleTrackValue is SubtitleTrack) return subtitleTrackValue.id;
+    return null;
   }
 
   Future<void> _saveProgress() async {
@@ -503,6 +538,9 @@ class _MoviePlayerScreenState extends State<MoviePlayerScreen> {
                                             selectedTrackId:
                                                 _selectedSubtitleTrackId,
                                             onSelectTrack: (trackId) async {
+                                              debugPrint(
+                                                '[Subtitle] user selecting trackId=$trackId',
+                                              );
                                               await _player
                                                   .setSubtitleTrack(trackId);
                                               if (!mounted) return;
@@ -510,6 +548,9 @@ class _MoviePlayerScreenState extends State<MoviePlayerScreen> {
                                                   trigger: 'user-select-$trackId');
                                             },
                                             onDisable: () async {
+                                              debugPrint(
+                                                '[Subtitle] user disabling subtitle track',
+                                              );
                                               await _player
                                                   .disableSubtitleTrack();
                                               if (!mounted) return;
