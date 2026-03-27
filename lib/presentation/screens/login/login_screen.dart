@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../../../core/constants/app_colors.dart';
-import '../../../core/constants/app_constants.dart';
 import '../../../data/datasources/remote/xtream_api.dart';
 import '../../../data/models/user_info.dart';
 import '../home/home_dashboard.dart';
@@ -28,6 +27,8 @@ String formatUnixTimestamp(String unixTimestamp) {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
+  final _playlistNameController = TextEditingController();
+  final _serverUrlController = TextEditingController();
   final _usernameController = TextEditingController();
   final _passwordController = TextEditingController();
   final _api = XtreamApi();
@@ -36,20 +37,38 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   void dispose() {
+    _playlistNameController.dispose();
+    _serverUrlController.dispose();
     _usernameController.dispose();
     _passwordController.dispose();
     super.dispose();
   }
 
   void _login() async {
+    final playlistName = _playlistNameController.text.trim();
+    final rawServerUrl = _serverUrlController.text.trim();
+    final serverUrl = rawServerUrl.replaceAll(RegExp(r'/$'), '');
     final username = _usernameController.text.trim();
     final password = _passwordController.text.trim();
 
-    if (username.isEmpty || password.isEmpty) {
+    if (playlistName.isEmpty ||
+        serverUrl.isEmpty ||
+        username.isEmpty ||
+        password.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Please enter username and password'),
+          content: Text('Please fill in all required fields'),
           backgroundColor: AppColors.highlight,
+        ),
+      );
+      return;
+    }
+
+    if (!serverUrl.startsWith('http://') && !serverUrl.startsWith('https://')) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Server URL must start with http:// or https://'),
+          backgroundColor: Colors.redAccent,
         ),
       );
       return;
@@ -58,7 +77,7 @@ class _LoginScreenState extends State<LoginScreen> {
     setState(() => _isLoading = true);
 
     final result = await _api.authenticate(
-      AppConstants.serverUrl,
+      serverUrl,
       username,
       password,
     );
@@ -70,7 +89,8 @@ class _LoginScreenState extends State<LoginScreen> {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('username', username);
       await prefs.setString('password', password);
-      await prefs.setString('server_url', AppConstants.serverUrl);
+      await prefs.setString('server_url', serverUrl.trim());
+      await prefs.setString('playlist_name', playlistName.trim());
       const storage = FlutterSecureStorage();
       await storage.write(key: 'username', value: username);
       await storage.write(key: 'password', value: password);
@@ -78,7 +98,7 @@ class _LoginScreenState extends State<LoginScreen> {
       // Create UserInfo object
       final userInfo = UserInfo.fromJson(
         result['data'],
-        AppConstants.serverUrl,
+        serverUrl,
         username,
         password,
       );
@@ -86,7 +106,7 @@ class _LoginScreenState extends State<LoginScreen> {
       // Setup XtreamApi with credentials for further requests
       final xtreamApi = XtreamApi();
       xtreamApi.setCredentials(
-        serverUrl: AppConstants.serverUrl,
+        serverUrl: serverUrl,
         username: username,
         password: password,
       );
@@ -169,6 +189,62 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                 ),
                 const SizedBox(height: 40),
+                TextField(
+                  controller: _playlistNameController,
+                  style: const TextStyle(color: AppColors.textPrimary),
+                  decoration: InputDecoration(
+                    labelText: 'Playlist Name',
+                    hintText: 'e.g. My IPTV, Home, Work...',
+                    hintStyle: const TextStyle(color: AppColors.textHint),
+                    labelStyle: const TextStyle(color: AppColors.textSecondary),
+                    prefixIcon: const Icon(
+                      Icons.playlist_play,
+                      color: AppColors.highlight,
+                    ),
+                    filled: true,
+                    fillColor: AppColors.primary,
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide.none,
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: const BorderSide(
+                        color: AppColors.highlight,
+                        width: 2,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: _serverUrlController,
+                  style: const TextStyle(color: AppColors.textPrimary),
+                  decoration: InputDecoration(
+                    labelText: 'Server URL',
+                    hintText: 'http://yourserver.com:port',
+                    hintStyle: const TextStyle(color: AppColors.textHint),
+                    labelStyle: const TextStyle(color: AppColors.textSecondary),
+                    prefixIcon: const Icon(
+                      Icons.cloud_outlined,
+                      color: AppColors.highlight,
+                    ),
+                    filled: true,
+                    fillColor: AppColors.primary,
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide.none,
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: const BorderSide(
+                        color: AppColors.highlight,
+                        width: 2,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
                 TextField(
                   controller: _usernameController,
                   style: const TextStyle(color: AppColors.textPrimary),

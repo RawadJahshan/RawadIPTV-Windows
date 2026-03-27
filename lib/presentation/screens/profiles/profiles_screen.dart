@@ -2,7 +2,6 @@
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import '../../../core/constants/app_constants.dart';
 import '../../../data/datasources/remote/xtream_api.dart';
 import '../../../data/models/profile.dart';
 import '../../../data/models/user_info.dart';
@@ -45,9 +44,15 @@ class _ProfilesScreenState extends State<ProfilesScreen> {
   void _selectProfile(Profile profile) async {
     setState(() => _isLoading = true);
 
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('username', profile.username);
+    await prefs.setString('password', profile.password);
+    await prefs.setString('server_url', profile.serverUrl);
+    await prefs.setString('playlist_name', profile.name);
+
     final xtreamApi = XtreamApi();
     xtreamApi.setCredentials(
-      serverUrl: AppConstants.serverUrl,
+      serverUrl: profile.serverUrl,
       username: profile.username,
       password: profile.password,
     );
@@ -392,27 +397,46 @@ class _AddProfileDialog extends StatefulWidget {
 }
 
 class _AddProfileDialogState extends State<_AddProfileDialog> {
+  final _playlistNameController = TextEditingController();
+  final _serverUrlController = TextEditingController();
   final _usernameController = TextEditingController();
   final _passwordController = TextEditingController();
-  final _api = XtreamApi();
   bool _isLoading = false;
   bool _obscurePassword = true;
 
   @override
   void dispose() {
+    _playlistNameController.dispose();
+    _serverUrlController.dispose();
     _usernameController.dispose();
     _passwordController.dispose();
     super.dispose();
   }
 
   void _addProfile() async {
+    final playlistName = _playlistNameController.text.trim();
+    final rawServerUrl = _serverUrlController.text.trim();
+    final serverUrl = rawServerUrl.replaceAll(RegExp(r'/$'), '');
     final username = _usernameController.text.trim();
     final password = _passwordController.text.trim();
 
-    if (username.isEmpty || password.isEmpty) {
+    if (playlistName.isEmpty ||
+        serverUrl.isEmpty ||
+        username.isEmpty ||
+        password.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Please enter username and password'),
+          content: Text('Please fill in all required fields'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
+    if (!serverUrl.startsWith('http://') && !serverUrl.startsWith('https://')) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Server URL must start with http:// or https://'),
           backgroundColor: Colors.red,
         ),
       );
@@ -424,7 +448,7 @@ class _AddProfileDialogState extends State<_AddProfileDialog> {
     try {
       final dio = Dio();
       final prefs = await SharedPreferences.getInstance();
-      final url = 'http://rawadiptv.online/player_api.php'
+      final url = '$serverUrl/player_api.php'
           '?username=$username&password=$password'
           '&action=get_account_info';
 
@@ -439,23 +463,24 @@ class _AddProfileDialogState extends State<_AddProfileDialog> {
 
       await prefs.setString('username', username);
       await prefs.setString('password', password);
-      await prefs.setString('server_url', 'http://rawadiptv.online');
+      await prefs.setString('server_url', serverUrl.trim());
+      await prefs.setString('playlist_name', playlistName.trim());
 
       final parsedUserInfo = UserInfo.fromJson(
         data,
-        AppConstants.serverUrl,
+        serverUrl,
         username,
         password,
       );
 
       final profile = Profile(
         id: DateTime.now().millisecondsSinceEpoch.toString(),
-        name: username,
-        serverUrl: AppConstants.serverUrl,
+        name: playlistName,
+        serverUrl: serverUrl,
         username: username,
         password: password,
         expiryDate: formatUnixTimestamp(parsedUserInfo.expDate),
-        avatarLetter: username[0].toUpperCase(),
+        avatarLetter: playlistName[0].toUpperCase(),
       );
 
       await ProfileService.saveProfile(profile);
@@ -508,6 +533,22 @@ class _AddProfileDialogState extends State<_AddProfileDialog> {
               ),
             ),
             const SizedBox(height: 24),
+
+            _buildTextField(
+              controller: _playlistNameController,
+              label: 'Playlist Name',
+              hint: 'e.g. My IPTV, Home, Work...',
+              icon: Icons.playlist_play,
+            ),
+            const SizedBox(height: 16),
+
+            _buildTextField(
+              controller: _serverUrlController,
+              label: 'Server URL',
+              hint: 'http://yourserver.com:port',
+              icon: Icons.cloud_outlined,
+            ),
+            const SizedBox(height: 16),
 
             // Username
             _buildTextField(

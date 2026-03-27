@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../live_tv/live_tv_categories_screen.dart';
 import '../movies/movies_screen.dart';
 import '../series/series_categories_screen.dart';
@@ -8,7 +9,7 @@ import '../../../data/datasources/remote/xtream_api.dart';
 import '../profiles/profiles_screen.dart';
 import '../settings/settings_screen.dart';
 
-class HomeDashboard extends StatelessWidget {
+class HomeDashboard extends StatefulWidget {
   final String username;
   final String expiryDate;
   final XtreamApi xtreamApi;
@@ -19,6 +20,26 @@ class HomeDashboard extends StatelessWidget {
     required this.expiryDate,
     required this.xtreamApi,
   });
+
+  @override
+  State<HomeDashboard> createState() => _HomeDashboardState();
+}
+
+class _HomeDashboardState extends State<HomeDashboard> {
+  String _playlistName = 'My IPTV';
+
+  @override
+  void initState() {
+    super.initState();
+    _loadPlaylistName();
+  }
+
+  Future<void> _loadPlaylistName() async {
+    final prefs = await SharedPreferences.getInstance();
+    final savedPlaylistName = prefs.getString('playlist_name') ?? 'My IPTV';
+    if (!mounted) return;
+    setState(() => _playlistName = savedPlaylistName);
+  }
 
   Widget buildTile({
     required String label,
@@ -80,9 +101,9 @@ class HomeDashboard extends StatelessWidget {
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text(
-                    "IPTV Rawad J",
-                    style: TextStyle(
+                  Text(
+                    _playlistName,
+                    style: const TextStyle(
                       color: Colors.white,
                       fontSize: 34,
                       fontWeight: FontWeight.bold,
@@ -106,7 +127,7 @@ class HomeDashboard extends StatelessWidget {
                               Navigator.push(
                                 context,
                                 MaterialPageRoute(
-                                  builder: (_) => LiveTvCategoriesScreen(xtreamApi: xtreamApi),
+                                  builder: (_) => LiveTvCategoriesScreen(xtreamApi: widget.xtreamApi),
                                 ),
                               );
                             },
@@ -120,7 +141,7 @@ class HomeDashboard extends StatelessWidget {
                               Navigator.push(
                                 context,
                                 MaterialPageRoute(
-                                  builder: (_) => MoviesScreen(xtreamApi: xtreamApi),
+                                  builder: (_) => MoviesScreen(xtreamApi: widget.xtreamApi),
                                 ),
                               );
                             },
@@ -134,7 +155,7 @@ class HomeDashboard extends StatelessWidget {
                               Navigator.push(
                                 context,
                                 MaterialPageRoute(
-                                  builder: (_) => SeriesCategoriesScreen(xtreamApi: xtreamApi),
+                                  builder: (_) => SeriesCategoriesScreen(xtreamApi: widget.xtreamApi),
                                 ),
                               );
                             },
@@ -145,7 +166,7 @@ class HomeDashboard extends StatelessWidget {
                             startColor: const Color(0xFFe91e63),
                             endColor: const Color(0xFFc2185b),
                             onTap: () {
-                              Navigator.pushNamed(context, '/favorites', arguments: xtreamApi);
+                              Navigator.pushNamed(context, '/favorites', arguments: widget.xtreamApi);
                             },
                           ),
                           buildTile(
@@ -214,7 +235,7 @@ class HomeDashboard extends StatelessWidget {
                 bottom: 24,
                 right: 36,
                 child: Text(
-                  'Logged in: $username\nExpiration: $expiryDate',
+                  'Logged in: ${widget.username}\nExpiration: ${widget.expiryDate}',
                   textAlign: TextAlign.right,
                   style: const TextStyle(
                     color: Colors.white70,
