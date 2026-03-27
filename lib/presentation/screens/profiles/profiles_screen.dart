@@ -1,5 +1,6 @@
 // import 'dart:convert';
 import 'package:flutter/material.dart';
+import '../../../core/constants/app_constants.dart';
 import '../../../data/datasources/remote/xtream_api.dart';
 import '../../../data/models/profile.dart';
 import '../../../data/models/user_info.dart';
@@ -44,7 +45,7 @@ class _ProfilesScreenState extends State<ProfilesScreen> {
 
     final xtreamApi = XtreamApi();
     xtreamApi.setCredentials(
-      serverUrl: profile.serverUrl,
+      serverUrl: AppConstants.serverUrl,
       username: profile.username,
       password: profile.password,
     );
@@ -389,36 +390,27 @@ class _AddProfileDialog extends StatefulWidget {
 }
 
 class _AddProfileDialogState extends State<_AddProfileDialog> {
-  final _nameController = TextEditingController();
-  final _serverController = TextEditingController();
   final _usernameController = TextEditingController();
   final _passwordController = TextEditingController();
-    final _api = XtreamApi();
+  final _api = XtreamApi();
   bool _isLoading = false;
   bool _obscurePassword = true;
 
   @override
   void dispose() {
-    _nameController.dispose();
-    _serverController.dispose();
     _usernameController.dispose();
     _passwordController.dispose();
     super.dispose();
   }
 
   void _addProfile() async {
-    final name = _nameController.text.trim();
-    final serverUrl = _serverController.text.trim();
     final username = _usernameController.text.trim();
     final password = _passwordController.text.trim();
 
-    if (name.isEmpty ||
-        serverUrl.isEmpty ||
-        username.isEmpty ||
-        password.isEmpty) {
+    if (username.isEmpty || password.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Please fill all fields'),
+          content: Text('Please enter username and password'),
           backgroundColor: Colors.red,
         ),
       );
@@ -427,26 +419,30 @@ class _AddProfileDialogState extends State<_AddProfileDialog> {
 
     setState(() => _isLoading = true);
 
-    final result = await _api.authenticate(serverUrl, username, password);
+    final result = await _api.authenticate(
+      AppConstants.serverUrl,
+      username,
+      password,
+    );
 
     setState(() => _isLoading = false);
 
     if (result['success']) {
       final userInfo = UserInfo.fromJson(
         result['data'],
-        serverUrl,
+        AppConstants.serverUrl,
         username,
         password,
       );
 
       final profile = Profile(
         id: DateTime.now().millisecondsSinceEpoch.toString(),
-        name: name,
-        serverUrl: serverUrl,
+        name: username,
+        serverUrl: AppConstants.serverUrl,
         username: username,
         password: password,
         expiryDate: formatUnixTimestamp(userInfo.expDate),
-        avatarLetter: name[0].toUpperCase(),
+        avatarLetter: username[0].toUpperCase(),
       );
 
       await ProfileService.saveProfile(profile);
@@ -457,8 +453,8 @@ class _AddProfileDialogState extends State<_AddProfileDialog> {
     } else {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(result['message'] ?? 'Login failed'),
+        const SnackBar(
+          content: Text('Invalid username or password'),
           backgroundColor: Colors.red,
         ),
       );
@@ -497,24 +493,6 @@ class _AddProfileDialogState extends State<_AddProfileDialog> {
               ),
             ),
             const SizedBox(height: 24),
-
-            // Profile name
-            _buildTextField(
-              controller: _nameController,
-              label: 'Profile Name',
-              hint: 'e.g. Home, Work...',
-              icon: Icons.person,
-            ),
-            const SizedBox(height: 16),
-
-            // Server URL
-            _buildTextField(
-              controller: _serverController,
-              label: 'Server URL',
-              hint: 'http://server.com:port',
-              icon: Icons.dns,
-            ),
-            const SizedBox(height: 16),
 
             // Username
             _buildTextField(

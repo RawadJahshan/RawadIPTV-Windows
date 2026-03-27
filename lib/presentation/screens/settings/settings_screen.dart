@@ -3,6 +3,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import '../../../core/constants/app_colors.dart';
+import '../../../core/constants/app_constants.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -25,8 +26,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
       const storage = FlutterSecureStorage();
       final username = await storage.read(key: 'username');
       final password = await storage.read(key: 'password');
-      final serverUrl = prefs.getString('server_url');
-
       // Clear everything
       await prefs.clear();
 
@@ -37,9 +36,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       if (password != null) {
         await storage.write(key: 'password', value: password);
       }
-      if (serverUrl != null) {
-        await prefs.setString('server_url', serverUrl);
-      }
+      await prefs.setString('server_url', AppConstants.serverUrl);
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
