@@ -44,7 +44,7 @@ class _MoviePlayerScreenState extends State<MoviePlayerScreen> {
   Duration _position = Duration.zero;
   Duration _duration = Duration.zero;
   Timer? _progressTimer;
-  List<AudioTrack> _audioTracks = [];
+  List<Map<String, dynamic>> _audioTracks = [];
   List<SubtitleTrack> _subtitleTracks = [];
   int _selectedAudioTrack = -1;
   int _selectedSubTrack = -1;
@@ -90,13 +90,30 @@ class _MoviePlayerScreenState extends State<MoviePlayerScreen> {
 
   Future<void> _refreshSubtitleTracks() async {
     final subTracks = _player.subtitleTracks;
-    final audioTracks = _player.audioTracks;
+    List<Map<String, dynamic>> audioTracks = [];
+    try {
+      final tracks = (_player as dynamic).audioTracks as List;
+      audioTracks = tracks
+          .map((t) => {
+                'id': (t as dynamic).id as int,
+                'name': (t as dynamic).name as String,
+              })
+          .toList();
+    } catch (e) {
+      debugPrint('[Player] audioTracks error: $e');
+      final count = _player.audioTrackCount;
+      audioTracks = List.generate(
+        count,
+        (i) => {
+          'id': i,
+          'name': 'Audio ${i + 1}',
+        },
+      );
+    }
     debugPrint(
       '[Player] subs=${subTracks.map((t) => '${t.id}:${t.name}').toList()}',
     );
-    debugPrint(
-      '[Player] audio=${audioTracks.map((t) => '${t.id}:${t.name}').toList()}',
-    );
+    debugPrint('[Player] audio=$audioTracks');
     if (!mounted) return;
     setState(() {
       _subtitleTracks = subTracks;
@@ -440,18 +457,18 @@ class _MoviePlayerScreenState extends State<MoviePlayerScreen> {
                                                 _player.setAudioTrack(trackId);
                                               },
                                               itemBuilder: (_) => _audioTracks
-                                                  .map(
+                                                  .map<PopupMenuEntry<int>>(
                                                 (track) => PopupMenuItem<int>(
-                                                  value: track.id,
+                                                  value: track['id'] as int,
                                                   child: Row(
                                                     children: [
                                                       if (_selectedAudioTrack ==
-                                                          track.id)
+                                                          track['id'] as int)
                                                         const Padding(
                                                           padding: EdgeInsets.only(right: 8),
                                                           child: Icon(Icons.check, size: 16),
                                                         ),
-                                                      Text(track.name),
+                                                      Text(track['name'] as String),
                                                     ],
                                                   ),
                                                 ),
