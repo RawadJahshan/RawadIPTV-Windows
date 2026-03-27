@@ -103,7 +103,9 @@ class SubtitleOverlayButton extends StatelessWidget {
                   ),
                 Expanded(
                   child: Text(
-                    track.name,
+                    track.name.trim().isEmpty
+                        ? 'Subtitle ${track.id}'
+                        : track.name,
                     overflow: TextOverflow.ellipsis,
                   ),
                 ),
