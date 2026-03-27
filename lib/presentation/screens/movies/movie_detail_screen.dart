@@ -3,6 +3,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../../data/datasources/remote/xtream_api.dart';
 import '../../../data/models/movie_item.dart';
+import '../../../data/services/favorites_service.dart';
 import '../../../data/services/watch_progress_service.dart';
 import '../player/movie_player_screen.dart';
 
@@ -23,6 +24,7 @@ class MovieDetailScreen extends StatefulWidget {
 class _MovieDetailScreenState extends State<MovieDetailScreen> {
   bool _loading = true;
   bool _isPlotExpanded = false;
+  bool _isFavorite = false;
 
   late String _title;
   late String _posterUrl;
@@ -43,7 +45,16 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
     _plot = widget.movie.description;
     _genre = widget.movie.genre;
     _rating = widget.movie.rating;
+    _loadFavoriteStatus();
     _load();
+  }
+
+  Future<void> _loadFavoriteStatus() async {
+    final movie = widget.movie;
+    final fav = await FavoritesService.isFavorite(movie.streamId, FavoriteType.movie);
+    if (mounted) {
+      setState(() => _isFavorite = fav);
+    }
   }
 
   Future<void> _load() async {
@@ -394,17 +405,35 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
         ),
         const SizedBox(width: 8),
         Expanded(
-          child: ElevatedButton.icon(
-            onPressed: null,
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF263238),
-              disabledBackgroundColor: const Color(0xFF263238),
-              foregroundColor: Colors.white,
-              disabledForegroundColor: Colors.white,
+          child: FilledButton.icon(
+            icon: Icon(_isFavorite ? Icons.favorite : Icons.favorite_border),
+            label: Text(_isFavorite ? 'Remove from Favorites' : 'Add to Favorites'),
+            style: FilledButton.styleFrom(
+              backgroundColor: _isFavorite ? Colors.red : null,
               padding: const EdgeInsets.symmetric(vertical: 12),
             ),
-            icon: const Icon(Icons.favorite_border, size: 18),
-            label: const Text('Add to Favorites'),
+            onPressed: () async {
+              final movie = widget.movie;
+              if (_isFavorite) {
+                await FavoritesService.remove(movie.streamId, FavoriteType.movie);
+                if (mounted) {
+                  setState(() => _isFavorite = false);
+                }
+              } else {
+                await FavoritesService.add(
+                  FavoriteEntry(
+                    id: movie.streamId,
+                    name: movie.title,
+                    poster: movie.posterUrl,
+                    type: FavoriteType.movie,
+                    addedAt: DateTime.now(),
+                  ),
+                );
+                if (mounted) {
+                  setState(() => _isFavorite = true);
+                }
+              }
+            },
           ),
         ),
         if (hasTrailer) ...[

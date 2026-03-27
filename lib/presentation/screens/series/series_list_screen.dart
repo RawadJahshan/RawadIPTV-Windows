@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../data/datasources/remote/xtream_api.dart';
+import '../../../data/services/favorites_service.dart';
 import '../../../data/services/watch_progress_service.dart';
 import '../player/movie_player_screen.dart';
 import 'series_detail_screen.dart';
@@ -34,6 +35,7 @@ class _SeriesListScreenState extends State<SeriesListScreen> {
   List<_SeriesCardItem> _series = <_SeriesCardItem>[];
 
   bool get _isContinueWatching => widget.categoryId == -2;
+  bool get _isFavorites => widget.categoryId == -3;
 
   @override
   void initState() {
@@ -57,6 +59,10 @@ class _SeriesListScreenState extends State<SeriesListScreen> {
       await _loadContinueWatchingSeries();
       return;
     }
+    if (_isFavorites) {
+      await _loadFavoriteSeries();
+      return;
+    }
 
     try {
       final List<Map<String, dynamic>> rawSeries;
@@ -77,6 +83,34 @@ class _SeriesListScreenState extends State<SeriesListScreen> {
       setState(() {
         _errorMessage = 'Failed to load series. Please try again.';
         _isLoading = false;
+      });
+    }
+  }
+
+  Future<void> _loadFavoriteSeries() async {
+    try {
+      final entries = await FavoritesService.getAll(FavoriteType.series);
+      if (!mounted) return;
+      setState(() {
+        _series = entries
+            .map(
+              (entry) => _SeriesCardItem(
+                seriesId: entry.id,
+                streamId: entry.id,
+                title: entry.name,
+                posterUrl: entry.poster ?? '',
+                rating: '',
+              ),
+            )
+            .toList();
+        _isLoading = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _errorMessage = 'Failed to load favorite series.';
+        _isLoading = false;
+        _series = <_SeriesCardItem>[];
       });
     }
   }
@@ -316,6 +350,14 @@ class _SeriesListScreenState extends State<SeriesListScreen> {
     final filteredSeries = _filteredSeries;
 
     if (filteredSeries.isEmpty) {
+      if (_isFavorites) {
+        return const Center(
+          child: Text(
+            'No favorite series yet',
+            style: TextStyle(color: Colors.white54, fontSize: 16),
+          ),
+        );
+      }
       if (_isContinueWatching) {
         return const Center(
           child: Text(
@@ -452,6 +494,33 @@ class _SeriesCardState extends State<_SeriesCard> {
                                 color: Colors.white10,
                                 child: const Icon(Icons.tv, color: Colors.white38, size: 30),
                               ),
+                            ),
+                          ),
+                          Positioned(
+                            top: 6,
+                            left: 6,
+                            child: FutureBuilder<bool>(
+                              future: FavoritesService.isFavorite(
+                                widget.series.seriesId,
+                                FavoriteType.series,
+                              ),
+                              builder: (context, snapshot) {
+                                if (snapshot.data != true) {
+                                  return const SizedBox.shrink();
+                                }
+                                return Container(
+                                  padding: const EdgeInsets.all(4),
+                                  decoration: BoxDecoration(
+                                    color: Colors.black.withValues(alpha: 0.7),
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: const Icon(
+                                    Icons.favorite,
+                                    color: Colors.red,
+                                    size: 14,
+                                  ),
+                                );
+                              },
                             ),
                           ),
                           Positioned(

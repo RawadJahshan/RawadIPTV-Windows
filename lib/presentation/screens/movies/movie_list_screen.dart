@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 
 import '../../../data/datasources/remote/xtream_api.dart';
 import '../../../data/models/movie_item.dart';
+import '../../../data/services/favorites_service.dart';
 import '../../../data/services/watch_progress_service.dart';
 import 'movie_detail_screen.dart';
 
@@ -31,6 +32,7 @@ class _MovieListScreenState extends State<MovieListScreen> {
   List<MovieItem> _movies = <MovieItem>[];
 
   bool get _isContinueWatching => widget.categoryId == -2;
+  bool get _isFavorites => widget.categoryId == -3;
 
   @override
   void initState() {
@@ -45,6 +47,47 @@ class _MovieListScreenState extends State<MovieListScreen> {
   }
 
   Future<void> _loadMovies() async {
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+
+    if (_isFavorites) {
+      try {
+        final entries = await FavoritesService.getAll(FavoriteType.movie);
+        if (!mounted) {
+          return;
+        }
+        setState(() {
+          _isLoading = false;
+          _movies = entries
+              .map(
+                (entry) => MovieItem(
+                  streamId: entry.id,
+                  title: entry.name,
+                  posterUrl: entry.poster ?? '',
+                  description: '',
+                  genre: '',
+                  rating: '',
+                  year: '',
+                  containerExtension: 'mp4',
+                ),
+              )
+              .toList();
+        });
+      } catch (_) {
+        if (!mounted) {
+          return;
+        }
+        setState(() {
+          _isLoading = false;
+          _errorMessage = 'Failed to load favorite movies.';
+          _movies = <MovieItem>[];
+        });
+      }
+      return;
+    }
+
     if (_isContinueWatching) {
       try {
         final entries = await WatchProgressService.getAllProgress();
@@ -81,11 +124,6 @@ class _MovieListScreenState extends State<MovieListScreen> {
       }
       return;
     }
-
-    setState(() {
-      _isLoading = true;
-      _errorMessage = null;
-    });
 
     try {
       final List<Map<String, dynamic>> rawStreams;
@@ -215,6 +253,14 @@ class _MovieListScreenState extends State<MovieListScreen> {
     final filteredMovies = _filteredMovies;
 
     if (filteredMovies.isEmpty) {
+      if (_isFavorites) {
+        return const Center(
+          child: Text(
+            'No favorite movies yet',
+            style: TextStyle(color: Colors.white54, fontSize: 16),
+          ),
+        );
+      }
       if (_isContinueWatching) {
         return const Center(
           child: Text(
@@ -340,6 +386,33 @@ class _MovieCardState extends State<_MovieCard> {
                                     color: Colors.white10,
                                     child: const Icon(Icons.movie, color: Colors.white38, size: 30),
                                   ),
+                                ),
+                              ),
+                              Positioned(
+                                top: 6,
+                                left: 6,
+                                child: FutureBuilder<bool>(
+                                  future: FavoritesService.isFavorite(
+                                    widget.movie.streamId,
+                                    FavoriteType.movie,
+                                  ),
+                                  builder: (context, snapshot) {
+                                    if (snapshot.data != true) {
+                                      return const SizedBox.shrink();
+                                    }
+                                    return Container(
+                                      padding: const EdgeInsets.all(4),
+                                      decoration: BoxDecoration(
+                                        color: Colors.black.withValues(alpha: 0.7),
+                                        borderRadius: BorderRadius.circular(8),
+                                      ),
+                                      child: const Icon(
+                                        Icons.favorite,
+                                        color: Colors.red,
+                                        size: 14,
+                                      ),
+                                    );
+                                  },
                                 ),
                               ),
                               Positioned(
