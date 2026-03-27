@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:dart_vlc/dart_vlc.dart';
 import '../../../data/services/watch_progress_service.dart';
-import '../../../data/services/track_info_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:window_manager/window_manager.dart';
 
@@ -45,8 +44,8 @@ class _MoviePlayerScreenState extends State<MoviePlayerScreen> {
   Duration _position = Duration.zero;
   Duration _duration = Duration.zero;
   Timer? _progressTimer;
-  List<TrackInfo> _audioTracks = [];
-  List<TrackInfo> _subtitleTracks = [];
+  int _audioTrackCount = 0;
+  List<SubtitleTrack> _subtitleTracks = [];
   int _selectedAudioTrack = 0;
   int _selectedSubTrack = -1;
   int _aspectRatioIndex = 0;
@@ -77,19 +76,16 @@ class _MoviePlayerScreenState extends State<MoviePlayerScreen> {
       autoStart: true,
     );
 
-    TrackInfoService.getTracksForUrl(widget.streamUrl).then((tracks) {
+    // Wait for tracks to be available
+    Future<void>.delayed(const Duration(seconds: 2), () {
       if (!mounted) return;
-      final audioTracks = tracks.where((t) => t.type == 'audio').toList();
-      final subtitleTracks = tracks.where((t) => t.type == 'subtitle').toList();
-      if (audioTracks.isEmpty && subtitleTracks.isEmpty) {
-        debugPrint('[Player] keeping existing tracks: probe returned empty');
-        return;
-      }
       setState(() {
-        _audioTracks = audioTracks;
-        _subtitleTracks = subtitleTracks;
+        _subtitleTracks = _player.subtitleTracks;
+        _audioTrackCount = _player.audioTrackCount;
       });
-      debugPrint('[Player] audio=${_audioTracks.length} subs=${_subtitleTracks.length}');
+      debugPrint('[Player] subtitle tracks: '
+          '${_subtitleTracks.map((t) => t.name).toList()}');
+      debugPrint('[Player] audio tracks: $_audioTrackCount');
     });
 
     if (widget.startAt != null && widget.startAt! > Duration.zero) {
@@ -143,59 +139,6 @@ class _MoviePlayerScreenState extends State<MoviePlayerScreen> {
   void _doResume(Duration startAt, Duration totalDuration) {
     final target = startAt > totalDuration ? totalDuration : startAt;
     _player.seek(target);
-  }
-
-  Future<void> _reopenWithSettings({
-    required Duration startAt,
-    required int subTrack,
-    required int audioTrack,
-  }) async {
-    if (!mounted) return;
-    setState(() => _isBuffering = true);
-
-    final args = <String>[];
-    if (subTrack == -2) {
-      args.add('--no-spu');
-    } else if (subTrack >= 0) {
-      args.add('--sub-track=$subTrack');
-    }
-    if (audioTrack > 0) {
-      args.add('--audio-track=$audioTrack');
-    }
-
-    _player.dispose();
-
-    _player = Player(
-      id: widget.streamId + 1,
-      commandlineArguments: args,
-    );
-    _player.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64)');
-
-    _attachPlayerListeners(resumeAt: startAt);
-
-    TrackInfoService.getTracksForUrl(widget.streamUrl).then((tracks) {
-      if (!mounted) return;
-      final audioTracks = tracks.where((t) => t.type == 'audio').toList();
-      final subtitleTracks = tracks.where((t) => t.type == 'subtitle').toList();
-      if (audioTracks.isEmpty && subtitleTracks.isEmpty) {
-        debugPrint('[Player] keeping existing tracks after reopen: probe returned empty');
-        return;
-      }
-      setState(() {
-        _audioTracks = audioTracks;
-        _subtitleTracks = subtitleTracks;
-      });
-      debugPrint('[Player] audio=${_audioTracks.length} subs=${_subtitleTracks.length}');
-    });
-
-    _didResume = false;
-
-    _player.open(
-      Media.network(widget.streamUrl),
-      autoStart: true,
-    );
-
-    if (mounted) setState(() {});
   }
 
   Future<void> _saveProgress() async {
@@ -471,75 +414,51 @@ class _MoviePlayerScreenState extends State<MoviePlayerScreen> {
                                             onPressed: () => _skip(30),
                                           ),
                                           // Audio tracks
-                                          if (_audioTracks.length > 1)
+                                          if (_audioTrackCount > 1)
                                             PopupMenuButton<int>(
                                               tooltip: 'Audio Track',
                                               icon: const Icon(Icons.audiotrack,
                                                   color: Colors.white),
-                                              onSelected: (index) async {
-                                                final currentPos = _position;
-                                                setState(() =>
-                                                    _selectedAudioTrack = index);
-                                                await _reopenWithSettings(
-                                                  startAt: currentPos,
-                                                  subTrack: _selectedSubTrack,
-                                                  audioTrack: index,
-                                                );
+                                              onSelected: (index) {
+                                                setState(
+                                                    () => _selectedAudioTrack = index);
+                                                _player.setAudioTrack(index);
                                               },
-                                              itemBuilder: (_) => _audioTracks
-                                                  .map(
-                                                    (track) => PopupMenuItem<int>(
-                                                      value: track.index,
-                                                      child: Row(
-                                                        children: [
-                                                          if (_selectedAudioTrack == track.index)
-                                                            const Padding(
-                                                              padding: EdgeInsets.only(right: 8),
-                                                              child: Icon(Icons.check, size: 16),
-                                                            ),
-                                                          Text('${track.name} (${track.codec})'),
-                                                        ],
-                                                      ),
-                                                    ),
-                                                  )
-                                                  .toList(),
+                                              itemBuilder: (_) => List.generate(
+                                                _audioTrackCount,
+                                                (index) => PopupMenuItem<int>(
+                                                  value: index,
+                                                  child: Row(
+                                                    children: [
+                                                      if (_selectedAudioTrack == index)
+                                                        const Padding(
+                                                          padding: EdgeInsets.only(right: 8),
+                                                          child: Icon(Icons.check, size: 16),
+                                                        ),
+                                                      Text('Track $index'),
+                                                    ],
+                                                  ),
+                                                ),
+                                              ),
                                             ),
                                           PopupMenuButton<int>(
                                             tooltip: 'Subtitles',
                                             icon: Icon(
-                                              _selectedSubTrack == -2
+                                              _selectedSubTrack == -1
                                                   ? Icons.closed_caption_disabled
                                                   : Icons.closed_caption,
                                               color: Colors.white,
                                             ),
-                                            onSelected: (index) async {
-                                              final currentPos = _position;
-                                              setState(() =>
-                                                  _selectedSubTrack = index);
-                                              await _reopenWithSettings(
-                                                startAt: currentPos,
-                                                subTrack: index,
-                                                audioTrack: _selectedAudioTrack,
-                                              );
+                                            onSelected: (trackId) async {
+                                              setState(() => _selectedSubTrack = trackId);
+                                              if (trackId == -1) {
+                                                await _player.disableSubtitleTrack();
+                                              } else {
+                                                await _player.setSubtitleTrack(trackId);
+                                              }
                                             },
                                             itemBuilder: (_) => [
-                                              PopupMenuItem(
-                                                value: -2,
-                                                child: Row(
-                                                  children: [
-                                                    if (_selectedSubTrack == -2)
-                                                      const Padding(
-                                                        padding:
-                                                            EdgeInsets.only(
-                                                                right: 8),
-                                                        child: Icon(Icons.check,
-                                                            size: 16),
-                                                      ),
-                                                    const Text('Off'),
-                                                  ],
-                                                ),
-                                              ),
-                                              PopupMenuItem(
+                                              PopupMenuItem<int>(
                                                 value: -1,
                                                 child: Row(
                                                   children: [
@@ -551,16 +470,16 @@ class _MoviePlayerScreenState extends State<MoviePlayerScreen> {
                                                         child: Icon(Icons.check,
                                                             size: 16),
                                                       ),
-                                                    const Text('Auto'),
+                                                    const Text('Off'),
                                                   ],
                                                 ),
                                               ),
                                               ..._subtitleTracks.map(
                                                 (track) => PopupMenuItem<int>(
-                                                  value: track.index,
+                                                  value: track.id,
                                                   child: Row(
                                                     children: [
-                                                      if (_selectedSubTrack == track.index)
+                                                      if (_selectedSubTrack == track.id)
                                                         const Padding(
                                                           padding: EdgeInsets.only(right: 8),
                                                           child: Icon(Icons.check, size: 16),
