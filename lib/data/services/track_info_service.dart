@@ -67,7 +67,7 @@ class TrackInfoService {
         if (name.isEmpty) name = 'Audio ${audioFallback + 1}';
         tracks.add(
           TrackInfo(
-            index: audioFallback,
+            index: audioFallback + 1,
             type: 'audio',
             name: name,
             codec: codec,
@@ -78,7 +78,7 @@ class TrackInfoService {
         if (name.isEmpty) name = 'Subtitle ${subFallback + 1}';
         tracks.add(
           TrackInfo(
-            index: subFallback,
+            index: subFallback + 1,
             type: 'subtitle',
             name: name,
             codec: codec,
@@ -119,7 +119,7 @@ class TrackInfoService {
 
       tracks.add(
         TrackInfo(
-          index: fallback,
+          index: fallback + 1,
           type: isAudio ? 'audio' : 'subtitle',
           name: name,
           codec: codec,
