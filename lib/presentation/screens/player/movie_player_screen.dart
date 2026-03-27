@@ -107,32 +107,39 @@ class _MoviePlayerScreenState extends State<MoviePlayerScreen> {
     });
 
     if (widget.startAt != null && widget.startAt! > Duration.zero) {
-      // Wait for position to start moving before seeking
+      var didSeek = false;
       late StreamSubscription sub;
+
+      Future<void> seekFromResume({Duration? knownDuration}) async {
+        if (!mounted || didSeek || widget.startAt == null) return;
+        didSeek = true;
+        await sub.cancel();
+
+        final duration = knownDuration ?? _duration;
+        var target = widget.startAt!;
+        if (duration > Duration.zero && target >= duration) {
+          target = duration - const Duration(seconds: 2);
+        }
+        if (target < Duration.zero) {
+          target = Duration.zero;
+        }
+
+        await Future<void>.delayed(const Duration(milliseconds: 500));
+        if (mounted) {
+          _player.seek(target);
+        }
+      }
+
       sub = _player.positionStream.listen((pos) {
-        if (pos.position != null &&
-            pos.position! > Duration.zero &&
-            pos.duration != null &&
-            pos.duration! > Duration.zero) {
-          sub.cancel();
-          // Small delay to ensure player is stable
-          Future<void>.delayed(
-            const Duration(milliseconds: 500), () {
-            if (mounted) {
-              _player.seek(widget.startAt!);
-            }
-          });
+        final duration = pos.duration;
+        if (duration != null && duration > Duration.zero) {
+          seekFromResume(knownDuration: duration);
         }
       });
 
-      // Safety timeout — seek anyway after 8 seconds
+      // Safety timeout — seek anyway after 8 seconds.
       Future<void>.delayed(const Duration(seconds: 8), () {
-        if (mounted &&
-            _player.position.position != null &&
-            widget.startAt != null) {
-          sub.cancel();
-          _player.seek(widget.startAt!);
-        }
+        seekFromResume();
       });
     }
 
