@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:dart_vlc/dart_vlc.dart';
 import '../../../data/services/watch_progress_service.dart';
+import '../../widgets/player/subtitle_overlay_button.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:window_manager/window_manager.dart';
 
@@ -46,7 +47,7 @@ class _MoviePlayerScreenState extends State<MoviePlayerScreen> {
   Timer? _progressTimer;
   List<String> _audioTracks = [];
   int _selectedAudioTrack = 0;
-  List<SubtitleTrack> _subtitleTracks = [];
+  List<PlayerSubtitleTrackItem> _subtitleTracks = [];
   int? _selectedSubtitleTrackId;
   int _aspectRatioIndex = 0;
 
@@ -101,14 +102,11 @@ class _MoviePlayerScreenState extends State<MoviePlayerScreen> {
     _player.currentStream.listen((current) {
       if (!mounted) return;
       final audioCount = _player.audioTrackCount;
-      final subtitleTracks = _player.subtitleTracks;
-      final currentSubtitle = _player.subtitleTrack;
       setState(() {
         _audioTracks = audioCount > 0
             ? List.generate(audioCount, (i) => 'Audio Track ${i + 1}')
             : [];
-        _subtitleTracks = subtitleTracks;
-        _selectedSubtitleTrackId = currentSubtitle?.id;
+        _syncSubtitleTracks();
       });
     });
 
@@ -121,6 +119,30 @@ class _MoviePlayerScreenState extends State<MoviePlayerScreen> {
       const Duration(seconds: 5), (_) => _saveProgress());
 
     _scheduleHide();
+  }
+
+  void _syncSubtitleTracks() {
+    final subtitleTracks = _player.subtitleTracks;
+    final currentSubtitleId = _player.subtitleTrack?.id;
+    _subtitleTracks = subtitleTracks
+        .map((track) => PlayerSubtitleTrackItem(id: track.id, name: track.name))
+        .toList();
+    _selectedSubtitleTrackId =
+        _subtitleTracks.any((track) => track.id == currentSubtitleId)
+            ? currentSubtitleId
+            : null;
+  }
+
+  Future<void> _selectSubtitleTrack(int trackId) async {
+    await _player.setSubtitleTrack(trackId);
+    if (!mounted) return;
+    setState(_syncSubtitleTracks);
+  }
+
+  Future<void> _disableSubtitleTrack() async {
+    await _player.disableSubtitleTrack();
+    if (!mounted) return;
+    setState(_syncSubtitleTracks);
   }
 
   Future<void> _saveProgress() async {
@@ -429,66 +451,15 @@ class _MoviePlayerScreenState extends State<MoviePlayerScreen> {
                                                       ))
                                                   .toList(),
                                             ),
-                                          if (_subtitleTracks.isNotEmpty)
-                                            PopupMenuButton<int?>(
-                                              tooltip: 'Subtitles',
-                                              icon: const Icon(
-                                                Icons.closed_caption,
-                                                color: Colors.white,
-                                              ),
-                                              onSelected: (trackId) {
-                                                if (trackId == null) {
-                                                  _player.disableSubtitleTrack();
-                                                } else {
-                                                  _player.setSubtitleTrack(trackId);
-                                                }
-                                                setState(() {
-                                                  _selectedSubtitleTrackId = trackId;
-                                                });
-                                              },
-                                              itemBuilder: (_) => [
-                                                PopupMenuItem<int?>(
-                                                  value: null,
-                                                  child: Row(
-                                                    children: [
-                                                      if (_selectedSubtitleTrackId ==
-                                                          null)
-                                                        const Padding(
-                                                          padding:
-                                                              EdgeInsets.only(
-                                                                  right: 8),
-                                                          child: Icon(
-                                                            Icons.check,
-                                                            size: 16,
-                                                          ),
-                                                        ),
-                                                      const Text('Off'),
-                                                    ],
-                                                  ),
-                                                ),
-                                                ..._subtitleTracks.map(
-                                                  (track) => PopupMenuItem<int?>(
-                                                    value: track.id,
-                                                    child: Row(
-                                                      children: [
-                                                        if (_selectedSubtitleTrackId ==
-                                                            track.id)
-                                                          const Padding(
-                                                            padding:
-                                                                EdgeInsets.only(
-                                                                    right: 8),
-                                                            child: Icon(
-                                                              Icons.check,
-                                                              size: 16,
-                                                            ),
-                                                          ),
-                                                        Text(track.name),
-                                                      ],
-                                                    ),
-                                                  ),
-                                                ),
-                                              ],
-                                            ),
+                                          PlayerSubtitleOverlayButton(
+                                            tracks: _subtitleTracks,
+                                            selectedTrackId:
+                                                _selectedSubtitleTrackId,
+                                            onSelectTrack:
+                                                _selectSubtitleTrack,
+                                            onDisableTrack:
+                                                _disableSubtitleTrack,
+                                          ),
                                           PopupMenuButton<int>(
                                             tooltip: 'Aspect Ratio',
                                             icon: const Icon(
