@@ -43,6 +43,7 @@ class _MoviePlayerScreenState extends State<MoviePlayerScreen> {
   int _bufferPercent = 0;
   Duration _position = Duration.zero;
   Duration _duration = Duration.zero;
+  bool _didResume = false;
   Timer? _progressTimer;
   List<String> _audioTracks = [];
   int _selectedAudioTrack = 0;
@@ -67,9 +68,13 @@ class _MoviePlayerScreenState extends State<MoviePlayerScreen> {
 
     _player.positionStream.listen((pos) {
       if (!mounted) return;
+      final newPosition = pos.position ?? Duration.zero;
+      final newDuration = pos.duration ?? Duration.zero;
+      debugPrint(
+          '[Resume] positionStream pos=$newPosition dur=$newDuration didResume=$_didResume');
       setState(() {
-        _position = pos.position ?? Duration.zero;
-        _duration = pos.duration ?? Duration.zero;
+        _position = newPosition;
+        _duration = newDuration;
       });
     });
 
@@ -116,17 +121,12 @@ class _MoviePlayerScreenState extends State<MoviePlayerScreen> {
         await sub.cancel();
 
         final duration = knownDuration ?? _duration;
-        var target = widget.startAt!;
-        if (duration > Duration.zero && target >= duration) {
-          target = duration - const Duration(seconds: 2);
-        }
-        if (target < Duration.zero) {
-          target = Duration.zero;
-        }
+        final target = widget.startAt!;
 
         await Future<void>.delayed(const Duration(milliseconds: 500));
         if (mounted) {
-          _player.seek(target);
+          _didResume = true;
+          _doResume(target, duration);
         }
       }
 
@@ -205,6 +205,23 @@ class _MoviePlayerScreenState extends State<MoviePlayerScreen> {
     } finally {
       if (mounted) setState(() => _isSeeking = false);
     }
+  }
+
+  void _doResume(Duration target, Duration duration) {
+    debugPrint(
+        '[Resume] _doResume called target=$target duration=$duration position=$_position');
+    var seekTarget = target;
+    if (duration > Duration.zero && seekTarget >= duration) {
+      seekTarget = duration - const Duration(seconds: 2);
+    }
+    if (seekTarget < Duration.zero) seekTarget = Duration.zero;
+    debugPrint('[Resume] seeking to $seekTarget');
+    _player.seek(seekTarget);
+
+    // Verify seek landed after 1 second
+    Future<void>.delayed(const Duration(seconds: 1), () {
+      debugPrint('[Resume] position after seek: $_position');
+    });
   }
 
   String _fmt(Duration d) {
