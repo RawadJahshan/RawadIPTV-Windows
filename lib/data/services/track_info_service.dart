@@ -57,8 +57,6 @@ class TrackInfoService {
       final tags = s['tags'] as Map? ?? {};
       final language = tags['language']?.toString() ?? '';
       final title = tags['title']?.toString() ?? '';
-      final streamIndex = s['index'] is int ? s['index'] as int : null;
-
       var name = title.isNotEmpty
           ? title
           : language.isNotEmpty
@@ -69,7 +67,7 @@ class TrackInfoService {
         if (name.isEmpty) name = 'Audio ${audioFallback + 1}';
         tracks.add(
           TrackInfo(
-            index: streamIndex ?? audioFallback,
+            index: audioFallback,
             type: 'audio',
             name: name,
             codec: codec,
@@ -80,7 +78,7 @@ class TrackInfoService {
         if (name.isEmpty) name = 'Subtitle ${subFallback + 1}';
         tracks.add(
           TrackInfo(
-            index: streamIndex ?? subFallback,
+            index: subFallback,
             type: 'subtitle',
             name: name,
             codec: codec,
@@ -107,7 +105,6 @@ class TrackInfoService {
       final match = re.firstMatch(line);
       if (match == null) continue;
 
-      final streamIndex = int.tryParse(match.group(1) ?? '');
       final language = (match.group(2) ?? '').trim();
       final typeRaw = (match.group(3) ?? '').toLowerCase();
       final codec = (match.group(4) ?? '').trim().toLowerCase();
@@ -122,7 +119,7 @@ class TrackInfoService {
 
       tracks.add(
         TrackInfo(
-          index: streamIndex ?? fallback,
+          index: fallback,
           type: isAudio ? 'audio' : 'subtitle',
           name: name,
           codec: codec,
