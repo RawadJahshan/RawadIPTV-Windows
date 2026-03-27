@@ -7,7 +7,6 @@ class SubtitleOverlayButton extends StatelessWidget {
   final Future<void> Function(int trackId) onSelectTrack;
   final Future<void> Function() onDisable;
   final bool visible;
-  final bool hideWhenEmpty;
 
   const SubtitleOverlayButton({
     super.key,
@@ -16,7 +15,6 @@ class SubtitleOverlayButton extends StatelessWidget {
     required this.onSelectTrack,
     required this.onDisable,
     this.visible = true,
-    this.hideWhenEmpty = true,
   });
 
   String get _selectedTrackName {
@@ -30,18 +28,41 @@ class SubtitleOverlayButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (!visible || (hideWhenEmpty && tracks.isEmpty)) {
+    if (!visible) {
       return const SizedBox.shrink();
     }
 
-    final canOpenMenu = tracks.isNotEmpty;
+    final hasTracks = tracks.isNotEmpty;
 
     return PopupMenuButton<int?>(
       tooltip: 'Subtitles: $_selectedTrackName',
-      enabled: canOpenMenu,
-      icon: Icon(
-        Icons.closed_caption,
-        color: canOpenMenu ? Colors.white : Colors.white54,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        decoration: BoxDecoration(
+          color: Colors.white.withOpacity(hasTracks ? 0.12 : 0.08),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: hasTracks ? Colors.white54 : Colors.white38,
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.closed_caption,
+              size: 18,
+              color: hasTracks ? Colors.white : Colors.white70,
+            ),
+            const SizedBox(width: 4),
+            Text(
+              'CC',
+              style: TextStyle(
+                color: hasTracks ? Colors.white : Colors.white70,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
       ),
       onSelected: (trackId) async {
         if (trackId == null) {
@@ -65,6 +86,11 @@ class SubtitleOverlayButton extends StatelessWidget {
             ],
           ),
         ),
+        if (!hasTracks)
+          const PopupMenuItem<int?>(
+            enabled: false,
+            child: Text('No subtitles available'),
+          ),
         ...tracks.map(
           (track) => PopupMenuItem<int?>(
             value: track.id,

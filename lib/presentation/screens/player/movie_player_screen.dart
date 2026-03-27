@@ -49,6 +49,8 @@ class _MoviePlayerScreenState extends State<MoviePlayerScreen> {
   int _selectedAudioTrack = 0;
   List<SubtitleTrack> _subtitleTracks = [];
   int? _selectedSubtitleTrackId;
+  Timer? _subtitleRetryTimer;
+  int _subtitleRetryAttempts = 0;
   int _aspectRatioIndex = 0;
 
   final List<Map<String, dynamic>> _aspectRatios = [
@@ -99,18 +101,18 @@ class _MoviePlayerScreenState extends State<MoviePlayerScreen> {
       autoStart: true,
     );
 
+    _refreshSubtitleState();
+    _scheduleSubtitleRetry();
+
     _player.currentStream.listen((current) {
       if (!mounted) return;
       final audioCount = _player.audioTrackCount;
-      final subtitleTracks = _player.subtitleTracks;
-      final currentSubtitle = _player.subtitleTrack;
       setState(() {
         _audioTracks = audioCount > 0
             ? List.generate(audioCount, (i) => 'Audio Track ${i + 1}')
             : [];
-        _subtitleTracks = subtitleTracks;
-        _selectedSubtitleTrackId = currentSubtitle;
       });
+      _refreshSubtitleState();
     });
 
     if (widget.startAt != null && widget.startAt! > Duration.zero) {
@@ -122,6 +124,39 @@ class _MoviePlayerScreenState extends State<MoviePlayerScreen> {
       const Duration(seconds: 5), (_) => _saveProgress());
 
     _scheduleHide();
+  }
+
+  void _refreshSubtitleState() {
+    if (!mounted) return;
+    final subtitleTracks = _player.subtitleTracks;
+    final currentSubtitle = _player.subtitleTrack;
+
+    setState(() {
+      _subtitleTracks = subtitleTracks;
+      _selectedSubtitleTrackId = subtitleTracks
+              .any((track) => track.id == currentSubtitle)
+          ? currentSubtitle
+          : null;
+    });
+
+    if (_subtitleTracks.isEmpty) {
+      _scheduleSubtitleRetry();
+    } else {
+      _subtitleRetryAttempts = 0;
+      _subtitleRetryTimer?.cancel();
+    }
+  }
+
+  void _scheduleSubtitleRetry() {
+    if (_subtitleRetryAttempts >= 2) return;
+    _subtitleRetryTimer?.cancel();
+    _subtitleRetryAttempts++;
+    _subtitleRetryTimer = Timer(const Duration(seconds: 2), () {
+      if (!mounted) return;
+      if (_subtitleTracks.isEmpty) {
+        _refreshSubtitleState();
+      }
+    });
   }
 
   Future<void> _saveProgress() async {
@@ -211,6 +246,7 @@ class _MoviePlayerScreenState extends State<MoviePlayerScreen> {
     _saveProgress();
     _hideTimer?.cancel();
     _progressTimer?.cancel();
+    _subtitleRetryTimer?.cancel();
     _player.dispose();
     super.dispose();
   }
