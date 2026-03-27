@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:dart_vlc/dart_vlc.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:window_manager/window_manager.dart';
 
 class MoviePlayerScreen extends StatefulWidget {
   final String streamUrl;
@@ -29,10 +30,16 @@ class _MoviePlayerScreenState extends State<MoviePlayerScreen> {
   bool _isSeeking = false;
   double? _sliderDragValue;
   bool _isBuffering = true;
+  bool _isPlaying = false;
+  bool _isFullscreen = false;
   int _bufferPercent = 0;
   Duration _position = Duration.zero;
   Duration _duration = Duration.zero;
   Timer? _progressTimer;
+  List<dynamic> _audioTracks = [];
+  List<dynamic> _subtitleTracks = [];
+  int _selectedAudioTrack = 0;
+  int _selectedSubtitleTrack = -1;
 
   @override
   void initState() {
@@ -61,7 +68,10 @@ class _MoviePlayerScreenState extends State<MoviePlayerScreen> {
 
     _player.playbackStream.listen((playback) {
       if (!mounted) return;
-      setState(() => _isBuffering = !playback.isPlaying && !playback.isCompleted);
+      setState(() {
+        _isPlaying = playback.isPlaying;
+        _isBuffering = !playback.isPlaying && !playback.isCompleted;
+      });
     });
 
     _player.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64)');
@@ -70,6 +80,29 @@ class _MoviePlayerScreenState extends State<MoviePlayerScreen> {
       Media.network(widget.streamUrl),
       autoStart: true,
     );
+
+    _player.currentStream.listen((current) {
+      if (!mounted) return;
+      if (current.medias != null) {
+        final media = current.medias!.values.firstOrNull;
+        if (media != null) {
+          setState(() {
+            _audioTracks = _player.audioTrackCount > 0
+                ? List.generate(
+                    _player.audioTrackCount,
+                    (i) => 'Audio Track ${i + 1}',
+                  )
+                : [];
+            _subtitleTracks = _player.subtitleCount > 0
+                ? List.generate(
+                    _player.subtitleCount,
+                    (i) => 'Subtitle ${i + 1}',
+                  )
+                : [];
+          });
+        }
+      }
+    });
 
     if (widget.startAt != null && widget.startAt! > Duration.zero) {
       await Future<void>.delayed(const Duration(seconds: 2));
@@ -132,6 +165,7 @@ class _MoviePlayerScreenState extends State<MoviePlayerScreen> {
 
   @override
   void dispose() {
+    WindowManager.instance.setFullScreen(false);
     _saveProgress();
     _hideTimer?.cancel();
     _progressTimer?.cancel();
@@ -297,23 +331,16 @@ class _MoviePlayerScreenState extends State<MoviePlayerScreen> {
                                             onPressed: () => _skip(-30),
                                           ),
                                           // Play/Pause
-                                          StreamBuilder<PlaybackState>(
-                                            stream: _player.playbackStream,
-                                            builder: (context, snap) {
-                                              final playing =
-                                                  snap.data?.isPlaying ?? false;
-                                              return IconButton(
-                                                icon: Icon(
-                                                  playing
-                                                      ? Icons.pause
-                                                      : Icons.play_arrow,
-                                                  color: Colors.white,
-                                                  size: 32,
-                                                ),
-                                                onPressed: () =>
-                                                    _player.playOrPause(),
-                                              );
-                                            },
+                                          IconButton(
+                                            icon: Icon(
+                                              _isPlaying
+                                                  ? Icons.pause
+                                                  : Icons.play_arrow,
+                                              color: Colors.white,
+                                              size: 32,
+                                            ),
+                                            onPressed: () =>
+                                                _player.playOrPause(),
                                           ),
                                           // Skip forward
                                           IconButton(
@@ -321,15 +348,104 @@ class _MoviePlayerScreenState extends State<MoviePlayerScreen> {
                                                 color: Colors.white),
                                             onPressed: () => _skip(30),
                                           ),
-                                          // Audio tracks (hidden for now)
-                                          StreamBuilder<CurrentState>(
-                                            stream: _player.currentStream,
-                                            builder: (context, snap) {
-                                              return const SizedBox.shrink();
+                                          // Audio tracks
+                                          if (_audioTracks.isNotEmpty)
+                                            PopupMenuButton<int>(
+                                              icon: const Icon(Icons.audiotrack,
+                                                  color: Colors.white),
+                                              onSelected: (index) {
+                                                _player.setAudioTrack(index);
+                                                setState(() =>
+                                                    _selectedAudioTrack = index);
+                                              },
+                                              itemBuilder: (_) => _audioTracks
+                                                  .asMap()
+                                                  .entries
+                                                  .map((e) => PopupMenuItem(
+                                                        value: e.key,
+                                                        child: Row(
+                                                          children: [
+                                                            if (_selectedAudioTrack ==
+                                                                e.key)
+                                                              const Icon(
+                                                                Icons.check,
+                                                                size: 16,
+                                                              ),
+                                                            if (_selectedAudioTrack ==
+                                                                e.key)
+                                                              const SizedBox(
+                                                                  width: 8),
+                                                            Text(e.value
+                                                                .toString()),
+                                                          ],
+                                                        ),
+                                                      ))
+                                                  .toList(),
+                                            ),
+                                          // Subtitle tracks
+                                          if (_subtitleTracks.isNotEmpty)
+                                            PopupMenuButton<int>(
+                                              icon: const Icon(
+                                                  Icons.closed_caption,
+                                                  color: Colors.white),
+                                              onSelected: (index) {
+                                                if (index == -1) {
+                                                  _player.setSubtitleTrack(-1);
+                                                } else {
+                                                  _player
+                                                      .setSubtitleTrack(index);
+                                                }
+                                                setState(() =>
+                                                    _selectedSubtitleTrack =
+                                                        index);
+                                              },
+                                              itemBuilder: (_) => [
+                                                const PopupMenuItem(
+                                                    value: -1,
+                                                    child: Text('Off')),
+                                                ..._subtitleTracks
+                                                    .asMap()
+                                                    .entries
+                                                    .map((e) => PopupMenuItem(
+                                                          value: e.key,
+                                                          child: Row(
+                                                            children: [
+                                                              if (_selectedSubtitleTrack ==
+                                                                  e.key)
+                                                                const Icon(
+                                                                  Icons.check,
+                                                                  size: 16,
+                                                                ),
+                                                              if (_selectedSubtitleTrack ==
+                                                                  e.key)
+                                                                const SizedBox(
+                                                                    width: 8),
+                                                              Text(e.value
+                                                                  .toString()),
+                                                            ],
+                                                          ),
+                                                        )),
+                                              ],
+                                            ),
+                                          IconButton(
+                                            icon: Icon(
+                                              _isFullscreen
+                                                  ? Icons.fullscreen_exit
+                                                  : Icons.fullscreen,
+                                              color: Colors.white,
+                                            ),
+                                            onPressed: () async {
+                                              setState(() => _isFullscreen =
+                                                  !_isFullscreen);
+                                              if (_isFullscreen) {
+                                                await WindowManager.instance
+                                                    .setFullScreen(true);
+                                              } else {
+                                                await WindowManager.instance
+                                                    .setFullScreen(false);
+                                              }
                                             },
                                           ),
-                                          // Subtitles (hidden for now)
-                                          const SizedBox.shrink(),
                                         ],
                                       ),
                                     ),
