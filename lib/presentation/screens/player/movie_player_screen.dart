@@ -1,10 +1,7 @@
 import 'dart:async';
-import 'dart:convert';
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:media_kit/media_kit.dart';
-import 'package:media_kit_video/media_kit_video.dart';
+import 'package:dart_vlc/dart_vlc.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class MoviePlayerScreen extends StatefulWidget {
@@ -26,501 +23,394 @@ class MoviePlayerScreen extends StatefulWidget {
 }
 
 class _MoviePlayerScreenState extends State<MoviePlayerScreen> {
-  final player = Player(
-    configuration: const PlayerConfiguration(
-      bufferSize: 64 * 1024 * 1024,
-    ),
-  );
-  late final controller = VideoController(player);
-
-  StreamSubscription<Duration>? _positionSub;
-  StreamSubscription<Duration>? _durationSub;
-  StreamSubscription<bool>? _playingSub;
-  StreamSubscription<bool>? _bufferingSub;
-  StreamSubscription<Duration>? _bufferSub;
-  StreamSubscription<String>? _errorSub;
-  StreamSubscription<VideoParams>? _videoParamsSub;
-  StreamSubscription<Tracks>? _tracksSub;
-  StreamSubscription<Track>? _trackSub;
-  Timer? _overlayTimer;
-  Timer? _saveTimer;
-
-  Duration _position = Duration.zero;
-  Duration _totalDuration = Duration.zero;
-  bool _isPlaying = false;
-  bool _isBuffering = false;
-  bool _showControls = true;
+  late Player _player;
+  bool _overlayVisible = true;
+  Timer? _hideTimer;
   bool _isSeeking = false;
-  bool _hasError = false;
-  Duration _buffered = Duration.zero;
-  Tracks _tracks = const Tracks();
-  Track _selectedTrack = const Track();
-
-  String get _progressKey => 'movie_progress_${widget.streamId}';
+  double? _sliderDragValue;
+  bool _isBuffering = true;
+  int _bufferPercent = 0;
+  Duration _position = Duration.zero;
+  Duration _duration = Duration.zero;
+  Timer? _progressTimer;
 
   @override
   void initState() {
     super.initState();
-    MediaKit.ensureInitialized();
-    _configurePlayer();
-    _listen();
-    _showControlsAndResetTimer();
-    _saveTimer = Timer.periodic(const Duration(seconds: 5), (_) => _saveWatchProgress());
-    _open();
+    _initPlayer();
   }
 
-  void _configurePlayer() {
-    if (player.platform is NativePlayer) {
-      final native = player.platform as NativePlayer;
-      native.setProperty('cache', 'yes');
-      native.setProperty('cache-secs', '10');
-      native.setProperty('cache-pause', 'no');
-      native.setProperty('cache-pause-initial', 'no');
-      native.setProperty('demuxer-max-bytes', '150MiB');
-      native.setProperty('demuxer-max-back-bytes', '50MiB');
-      native.setProperty('network-timeout', '15');
-      native.setProperty('hwdec', 'auto-safe');
-      native.setProperty('hr-seek', 'yes');
-      native.setProperty('hr-seek-demuxer-offset', '0');
-      native.setProperty('index-mode', 'default');
-      native.setProperty('demuxer-mkv-probe-video-duration', 'yes');
-      native.setProperty('demuxer-lavf-o-append', 'fflags=+fastseek');
-      native.setProperty('demuxer-lavf-o-append', 'analyzeduration=100000');
-      native.setProperty('demuxer-lavf-o-append', 'probesize=100000');
-      native.setProperty('demuxer-lavf-o-append', 'seekable=1');
-    }
-  }
+  Future<void> _initPlayer() async {
+    _player = Player(id: widget.streamId);
 
-  Media _media() {
-    return Media(
-      widget.streamUrl,
-      httpHeaders: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
-        'Connection': 'keep-alive',
-      },
+    _player.positionStream.listen((pos) {
+      if (!mounted) return;
+      setState(() {
+        _position = pos.position ?? Duration.zero;
+        _duration = pos.duration ?? Duration.zero;
+      });
+    });
+
+    _player.bufferingProgressStream.listen((percent) {
+      if (!mounted) return;
+      setState(() {
+        _bufferPercent = percent.toInt();
+        _isBuffering = percent < 100;
+      });
+    });
+
+    _player.playbackStream.listen((playback) {
+      if (!mounted) return;
+      setState(() => _isBuffering = !playback.isPlaying && !playback.isCompleted);
+    });
+
+    await _player.open(
+      Media.network(
+        widget.streamUrl,
+        extras: {
+          'http-user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+          'http-reconnect': 'true',
+        },
+      ),
+      autoStart: true,
     );
-  }
 
-  Future<void> _open({Duration? startAt}) async {
-    if (mounted) {
-      setState(() {
-        _hasError = false;
-      });
+    if (widget.startAt != null && widget.startAt! > Duration.zero) {
+      await Future<void>.delayed(const Duration(seconds: 2));
+      _player.seek(widget.startAt!);
     }
 
-    try {
-      await player.open(_media(), play: true);
+    _progressTimer = Timer.periodic(const Duration(seconds: 5), (_) {
+      _saveProgress();
+    });
 
-      if (startAt != null && startAt > Duration.zero) {
-        await player.seek(startAt);
-      } else if (widget.startAt != null && widget.startAt! > Duration.zero) {
-        await player.seek(widget.startAt!);
-      }
+    _scheduleHide();
+  }
 
-      await player.play();
-    } catch (_) {
-      if (mounted) setState(() => _hasError = true);
+  Future<void> _saveProgress() async {
+    if (_duration.inMilliseconds <= 0) return;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt('progress_pos_${widget.streamId}', _position.inMilliseconds);
+    await prefs.setInt('progress_dur_${widget.streamId}', _duration.inMilliseconds);
+  }
+
+  void _scheduleHide() {
+    _hideTimer?.cancel();
+    _hideTimer = Timer(const Duration(seconds: 3), () {
+      if (mounted) setState(() => _overlayVisible = false);
+    });
+  }
+
+  void _showOverlay() {
+    if (!_overlayVisible) setState(() => _overlayVisible = true);
+    _scheduleHide();
+  }
+
+  void _skip(int seconds) {
+    final target = _position + Duration(seconds: seconds);
+    if (target < Duration.zero) {
+      _player.seek(Duration.zero);
+    } else if (_duration > Duration.zero && target > _duration) {
+      _player.seek(_duration);
+    } else {
+      _player.seek(target);
     }
   }
 
-  void _listen() {
-    _positionSub = player.stream.position.listen((value) {
-      if (!mounted || _isSeeking) return;
-      setState(() => _position = value);
-    });
-
-    _durationSub = player.stream.duration.listen((value) {
-      if (!mounted) return;
-      setState(() {
-        _totalDuration = value;
-      });
-    });
-
-    _playingSub = player.stream.playing.listen((value) {
-      if (!mounted) return;
-      setState(() => _isPlaying = value);
-    });
-
-    _bufferingSub = player.stream.buffering.listen((value) {
-      if (!mounted) return;
-      setState(() => _isBuffering = value);
-    });
-
-    _bufferSub = player.stream.buffer.listen((value) {
-      if (!mounted) return;
-      setState(() {
-        _buffered = value;
-      });
-    });
-
-    _errorSub = player.stream.error.listen((error) {
-      debugPrint('[MoviePlayer] error: $error');
-      if (mounted) setState(() => _hasError = true);
-    });
-
-    _videoParamsSub = player.stream.videoParams.listen((_) {});
-
-    _tracksSub = player.stream.tracks.listen((value) {
-      if (!mounted) return;
-      setState(() => _tracks = value);
-    });
-
-    _trackSub = player.stream.track.listen((value) {
-      if (!mounted) return;
-      setState(() => _selectedTrack = value);
-    });
-  }
-
-  void _showControlsAndResetTimer() {
-    _overlayTimer?.cancel();
-    if (mounted) {
-      setState(() => _showControls = true);
-    }
-    _overlayTimer = Timer(const Duration(seconds: 3), () {
-      if (!mounted) return;
-      setState(() => _showControls = false);
-    });
-  }
-
-  Future<void> _seekWithPausePlay(double value) async {
-    final target = Duration(milliseconds: value.round());
-    setState(() {
-      _isSeeking = false;
-      _position = target;
-    });
-    await _seekSmart(target);
-  }
-
-  Future<void> _seekSmart(Duration target) async {
-    if (_isSeeking) return;
+  Future<void> _seekTo(Duration target) async {
     setState(() => _isSeeking = true);
     try {
-      await player.seek(target);
-      await Future<void>.delayed(const Duration(milliseconds: 100));
-      if (!player.state.playing) await player.play();
-    } catch (e) {
-      debugPrint('[MoviePlayer] seek error: $e');
+      _player.seek(target);
+      await Future<void>.delayed(const Duration(milliseconds: 300));
     } finally {
       if (mounted) setState(() => _isSeeking = false);
     }
   }
 
-  Future<void> _skipBackward30() async {
-    final current = player.state.position;
-    final target = current - const Duration(seconds: 30);
-    await _seekSmart(target < Duration.zero ? Duration.zero : target);
-  }
-
-  Future<void> _skipForward30() async {
-    final current = player.state.position;
-    final duration = player.state.duration;
-    final target = current + const Duration(seconds: 30);
-    await _seekSmart(target > duration ? duration : target);
-  }
-
-  KeyEventResult _handleKeyEvent(FocusNode node, KeyEvent event) {
-    if (event is! KeyDownEvent) return KeyEventResult.ignored;
-
-    if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
-      _skipBackward30();
-      _showControlsAndResetTimer();
-      return KeyEventResult.handled;
-    }
-
-    if (event.logicalKey == LogicalKeyboardKey.arrowRight) {
-      _skipForward30();
-      _showControlsAndResetTimer();
-      return KeyEventResult.handled;
-    }
-
-    return KeyEventResult.ignored;
-  }
-
-  int get _bufferPercent {
-    if (_totalDuration.inMilliseconds <= 0) return 0;
-    return (_buffered.inMilliseconds / _totalDuration.inMilliseconds * 100).clamp(0, 100).toInt();
-  }
-
-  Future<void> _retryOpen() async {
-    if (mounted) setState(() => _hasError = false);
-    await player.open(_media(), play: true);
-  }
-
-  Future<void> _saveWatchProgress() async {
-    final durationMs = _totalDuration.inMilliseconds;
-    final positionMs = _position.inMilliseconds;
-    if (durationMs <= 0 || positionMs < 0) return;
-
-    final prefs = await SharedPreferences.getInstance();
-    final payload = jsonEncode({
-      'positionMs': positionMs,
-      'durationMs': durationMs,
-    });
-    await prefs.setString(_progressKey, payload);
-  }
-
-  String _format(Duration value) {
-    final totalSeconds = value.inSeconds;
-    final hours = totalSeconds ~/ 3600;
-    final minutes = (totalSeconds % 3600) ~/ 60;
-    final seconds = totalSeconds % 60;
-    if (hours > 0) {
-      return '$hours:${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
-    }
-    return '${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
-  }
-
-  String _trackLabel(dynamic track, int index) {
-    if (track is AudioTrack || track is SubtitleTrack) {
-      final title = track.title?.trim();
-      final language = track.language?.trim();
-      if (title != null && title.isNotEmpty) return title;
-      if (language != null && language.isNotEmpty) return language;
-      return 'Track ${index + 1}';
-    }
-    return 'Track ${index + 1}';
+  String _fmt(Duration d) {
+    final h = d.inHours;
+    final m = d.inMinutes.remainder(60).toString().padLeft(2, '0');
+    final s = d.inSeconds.remainder(60).toString().padLeft(2, '0');
+    return h > 0 ? '$h:$m:$s' : '${d.inMinutes}:$s';
   }
 
   @override
   void dispose() {
-    _overlayTimer?.cancel();
-    _saveTimer?.cancel();
-    _saveWatchProgress();
-    _positionSub?.cancel();
-    _durationSub?.cancel();
-    _playingSub?.cancel();
-    _bufferingSub?.cancel();
-    _bufferSub?.cancel();
-    _errorSub?.cancel();
-    _videoParamsSub?.cancel();
-    _tracksSub?.cancel();
-    _trackSub?.cancel();
-    player.dispose();
+    _saveProgress();
+    _hideTimer?.cancel();
+    _progressTimer?.cancel();
+    _player.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    final maxMs = _totalDuration.inMilliseconds > 0 ? _totalDuration.inMilliseconds.toDouble() : 1.0;
-    final positionMs = _position.inMilliseconds.clamp(0, _totalDuration.inMilliseconds).toDouble();
-    final audioTracks = _tracks.audio;
-    final subtitleTracks = _tracks.subtitle;
+    final totalMs = _duration.inMilliseconds <= 0
+        ? 1.0
+        : _duration.inMilliseconds.toDouble();
+    final sliderValue =
+        (_sliderDragValue ?? _position.inMilliseconds.toDouble())
+            .clamp(0.0, totalMs);
 
-    return Scaffold(
-      backgroundColor: Colors.black,
-      body: Focus(
-        autofocus: true,
-        onKeyEvent: _handleKeyEvent,
-        child: MouseRegion(
-          onHover: (_) => _showControlsAndResetTimer(),
+    return KeyboardListener(
+      focusNode: FocusNode()..requestFocus(),
+      autofocus: true,
+      onKeyEvent: (event) {
+        if (event is KeyDownEvent) {
+          if (event.logicalKey == LogicalKeyboardKey.arrowRight) _skip(30);
+          if (event.logicalKey == LogicalKeyboardKey.arrowLeft) _skip(-30);
+          if (event.logicalKey == LogicalKeyboardKey.space) _player.playOrPause();
+        }
+      },
+      child: Scaffold(
+        backgroundColor: Colors.black,
+        body: MouseRegion(
+          onHover: (_) => _showOverlay(),
           child: GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTap: _showControlsAndResetTimer,
-            onPanDown: (_) => _showControlsAndResetTimer(),
+            onTap: _showOverlay,
             child: Stack(
               children: [
+                // Video
                 Positioned.fill(
                   child: Video(
-                    controller: controller,
+                    player: _player,
                     fit: BoxFit.contain,
-                    controls: NoVideoControls,
+                    showControls: false,
                   ),
                 ),
-                if (_isBuffering)
-                  const Positioned.fill(
-                    child: ColoredBox(
-                      color: Colors.black26,
-                      child: Center(
-                        child: CircularProgressIndicator(),
-                      ),
-                    ),
-                  ),
+
+                // Buffering text top center
                 if (_isBuffering)
                   Positioned(
-                    top: 16,
+                    top: 20,
                     left: 0,
                     right: 0,
                     child: Center(
                       child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 14, vertical: 6),
                         decoration: BoxDecoration(
                           color: Colors.black54,
-                          borderRadius: BorderRadius.circular(999),
+                          borderRadius: BorderRadius.circular(20),
                         ),
                         child: Text(
                           'Buffering $_bufferPercent%',
                           style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 13,
-                          ),
+                              color: Colors.white, fontSize: 13),
                         ),
                       ),
                     ),
                   ),
-                if (_hasError)
+
+                // Seeking spinner
+                if (_isSeeking)
+                  const Positioned.fill(
+                    child: Center(
+                      child: CircularProgressIndicator(color: Colors.white),
+                    ),
+                  ),
+
+                // Overlay
+                if (_overlayVisible)
                   Positioned.fill(
-                    child: ColoredBox(
-                      color: Colors.black54,
-                      child: Center(
-                        child: GestureDetector(
-                          onTap: _retryOpen,
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                            decoration: BoxDecoration(
-                              color: Colors.black87,
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: Text(
-                              'Unable to play this stream. Tap to retry.',
-                              textAlign: TextAlign.center,
-                              style: const TextStyle(color: Colors.white),
-                            ),
+                    child: AnimatedOpacity(
+                      opacity: 1.0,
+                      duration: const Duration(milliseconds: 300),
+                      child: Container(
+                        decoration: const BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                            colors: [
+                              Color(0xCC000000),
+                              Colors.transparent,
+                              Colors.transparent,
+                              Color(0xCC000000),
+                            ],
+                            stops: [0.0, 0.25, 0.75, 1.0],
                           ),
                         ),
-                      ),
-                    ),
-                  ),
-                AnimatedOpacity(
-                  duration: const Duration(milliseconds: 250),
-                  opacity: _showControls ? 1 : 0,
-                  child: IgnorePointer(
-                    ignoring: !_showControls,
-                    child: Column(
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.fromLTRB(12, 14, 8, 10),
-                          color: Colors.black54,
-                          child: Row(
+                        child: SafeArea(
+                          child: Column(
                             children: [
-                              Expanded(
-                                child: Text(
-                                  widget.title,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w600),
+                              // Top bar
+                              Padding(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 16, vertical: 8),
+                                child: Row(
+                                  children: [
+                                    Expanded(
+                                      child: Text(
+                                        widget.title,
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 16,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                    IconButton(
+                                      icon: const Icon(Icons.close,
+                                          color: Colors.white),
+                                      onPressed: () =>
+                                          Navigator.of(context).pop(),
+                                    ),
+                                  ],
                                 ),
                               ),
-                              IconButton(
-                                onPressed: () => Navigator.of(context).pop(),
-                                icon: const Icon(Icons.close, color: Colors.white),
-                              ),
-                            ],
-                          ),
-                        ),
-                        const Spacer(),
-                        Container(
-                          padding: const EdgeInsets.fromLTRB(10, 8, 10, 12),
-                          color: Colors.black54,
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Slider(
-                                value: positionMs,
-                                max: maxMs,
-                                onChangeStart: (_) => setState(() => _isSeeking = true),
-                                onChanged: (value) {
-                                  setState(() => _position = Duration(milliseconds: value.round()));
-                                },
-                                onChangeEnd: _seekWithPausePlay,
-                              ),
-                              Row(
-                                children: [
-                                  IconButton(
-                                    onPressed: () {
-                                      if (_isPlaying) {
-                                        player.pause();
-                                      } else {
-                                        player.play();
-                                      }
-                                    },
-                                    icon: Icon(
-                                      _isPlaying ? Icons.pause_circle_filled : Icons.play_circle_fill,
-                                      size: 34,
-                                      color: Colors.white,
-                                    ),
-                                  ),
-                                  IconButton(
-                                    icon: const Icon(Icons.replay_30, color: Colors.white),
-                                    onPressed: _skipBackward30,
-                                  ),
-                                  IconButton(
-                                    icon: const Icon(Icons.forward_30, color: Colors.white),
-                                    onPressed: _skipForward30,
-                                  ),
-                                  const SizedBox(width: 8),
-                                  Text(
-                                    '${_format(_position)} / ${_format(_totalDuration)}',
-                                    style: const TextStyle(color: Colors.white70),
-                                  ),
-                                  const Spacer(),
-                                  if (audioTracks.isNotEmpty)
-                                    PopupMenuButton<AudioTrack>(
-                                      tooltip: 'Audio tracks',
-                                      onSelected: (track) => player.setAudioTrack(track),
-                                      itemBuilder: (context) {
-                                        return List.generate(audioTracks.length, (index) {
-                                          final track = audioTracks[index];
-                                          final selected = track.id == _selectedTrack.audio.id;
-                                          return PopupMenuItem<AudioTrack>(
-                                            value: track,
-                                            child: Row(
-                                              children: [
-                                                if (selected) const Icon(Icons.check, size: 16),
-                                                if (selected) const SizedBox(width: 6),
-                                                Flexible(child: Text(_trackLabel(track, index))),
-                                              ],
-                                            ),
-                                          );
-                                        });
+
+                              const Spacer(),
+
+                              // Bottom bar
+                              Padding(
+                                padding:
+                                    const EdgeInsets.symmetric(horizontal: 8),
+                                child: Column(
+                                  children: [
+                                    Slider(
+                                      value: sliderValue,
+                                      min: 0,
+                                      max: totalMs,
+                                      onChangeStart: (v) =>
+                                          setState(() => _sliderDragValue = v),
+                                      onChanged: (v) =>
+                                          setState(() => _sliderDragValue = v),
+                                      onChangeEnd: (v) {
+                                        setState(() => _sliderDragValue = null);
+                                        _seekTo(Duration(
+                                            milliseconds: v.toInt()));
                                       },
-                                      icon: const Icon(Icons.audiotrack, color: Colors.white),
                                     ),
-                                  if (subtitleTracks.isNotEmpty)
-                                    PopupMenuButton<SubtitleTrack>(
-                                      tooltip: 'Subtitles',
-                                      onSelected: (track) => player.setSubtitleTrack(track),
-                                      itemBuilder: (context) {
-                                        final items = <PopupMenuEntry<SubtitleTrack>>[
-                                          PopupMenuItem<SubtitleTrack>(
-                                            value: SubtitleTrack.no(),
-                                            child: Row(
-                                              children: [
-                                                if (_selectedTrack.subtitle.id == 'no') const Icon(Icons.check, size: 16),
-                                                if (_selectedTrack.subtitle.id == 'no') const SizedBox(width: 6),
-                                                const Text('Off'),
-                                              ],
-                                            ),
+                                    Padding(
+                                      padding: const EdgeInsets.only(
+                                          left: 8, right: 8, bottom: 12),
+                                      child: Row(
+                                        children: [
+                                          Text(
+                                            '${_fmt(_position)} / ${_fmt(_duration)}',
+                                            style: const TextStyle(
+                                                color: Colors.white70,
+                                                fontSize: 13),
                                           ),
-                                        ];
-                                        items.addAll(
-                                          List.generate(subtitleTracks.length, (index) {
-                                            final track = subtitleTracks[index];
-                                            final selected = track.id == _selectedTrack.subtitle.id;
-                                            return PopupMenuItem<SubtitleTrack>(
-                                              value: track,
-                                              child: Row(
-                                                children: [
-                                                  if (selected) const Icon(Icons.check, size: 16),
-                                                  if (selected) const SizedBox(width: 6),
-                                                  Flexible(child: Text(_trackLabel(track, index))),
+                                          const Spacer(),
+                                          // Skip back
+                                          IconButton(
+                                            icon: const Icon(Icons.replay_30,
+                                                color: Colors.white),
+                                            onPressed: () => _skip(-30),
+                                          ),
+                                          // Play/Pause
+                                          StreamBuilder<PlaybackState>(
+                                            stream: _player.playbackStream,
+                                            builder: (context, snap) {
+                                              final playing =
+                                                  snap.data?.isPlaying ?? false;
+                                              return IconButton(
+                                                icon: Icon(
+                                                  playing
+                                                      ? Icons.pause
+                                                      : Icons.play_arrow,
+                                                  color: Colors.white,
+                                                  size: 32,
+                                                ),
+                                                onPressed: () =>
+                                                    _player.playOrPause(),
+                                              );
+                                            },
+                                          ),
+                                          // Skip forward
+                                          IconButton(
+                                            icon: const Icon(Icons.forward_30,
+                                                color: Colors.white),
+                                            onPressed: () => _skip(30),
+                                          ),
+                                          // Audio tracks
+                                          StreamBuilder<CurrentState>(
+                                            stream: _player.currentStream,
+                                            builder: (context, snap) {
+                                              final tracks = snap
+                                                      .data?.media?.tracks
+                                                      ?.where((t) =>
+                                                          t.trackType ==
+                                                          'Audio')
+                                                      .toList() ??
+                                                  [];
+                                              if (tracks.isEmpty) {
+                                                return const SizedBox.shrink();
+                                              }
+                                              return PopupMenuButton<int>(
+                                                icon: const Icon(
+                                                    Icons.audiotrack,
+                                                    color: Colors.white),
+                                                onSelected: (i) =>
+                                                    _player.setAudioTrack(i),
+                                                itemBuilder: (_) => tracks
+                                                    .asMap()
+                                                    .entries
+                                                    .map((e) => PopupMenuItem(
+                                                          value: e.key,
+                                                          child: Text(e.value
+                                                                  .trackDescription ??
+                                                              'Audio ${e.key + 1}'),
+                                                        ))
+                                                    .toList(),
+                                              );
+                                            },
+                                          ),
+                                          // Subtitles
+                                          StreamBuilder<CurrentState>(
+                                            stream: _player.currentStream,
+                                            builder: (context, snap) {
+                                              final tracks = snap
+                                                      .data?.media?.tracks
+                                                      ?.where((t) =>
+                                                          t.trackType == 'Text')
+                                                      .toList() ??
+                                                  [];
+                                              if (tracks.isEmpty) {
+                                                return const SizedBox.shrink();
+                                              }
+                                              return PopupMenuButton<int>(
+                                                icon: const Icon(
+                                                    Icons.closed_caption,
+                                                    color: Colors.white),
+                                                onSelected: (i) => i == -1
+                                                    ? _player
+                                                        .setSubtitleTrack(-1)
+                                                    : _player
+                                                        .setSubtitleTrack(i),
+                                                itemBuilder: (_) => [
+                                                  const PopupMenuItem(
+                                                    value: -1,
+                                                    child: Text('Off'),
+                                                  ),
+                                                  ...tracks
+                                                      .asMap()
+                                                      .entries
+                                                      .map((e) =>
+                                                          PopupMenuItem(
+                                                            value: e.key,
+                                                            child: Text(e.value
+                                                                    .trackDescription ??
+                                                                'Sub ${e.key + 1}'),
+                                                          )),
                                                 ],
-                                              ),
-                                            );
-                                          }),
-                                        );
-                                        return items;
-                                      },
-                                      icon: const Icon(Icons.closed_caption, color: Colors.white),
+                                              );
+                                            },
+                                          ),
+                                        ],
+                                      ),
                                     ),
-                                ],
+                                  ],
+                                ),
                               ),
                             ],
                           ),
                         ),
-                      ],
+                      ),
                     ),
                   ),
-                ),
               ],
             ),
           ),

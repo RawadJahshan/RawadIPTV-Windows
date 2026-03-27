@@ -1,3 +1,4 @@
+import 'package:dart_vlc/dart_vlc.dart';
 import 'package:flutter/material.dart';
 import 'package:media_kit/media_kit.dart';
 import 'data/datasources/remote/xtream_api.dart';
@@ -6,6 +7,7 @@ import 'presentation/screens/favorites/favorites_screen.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
+  DartVLC.initialize();
   MediaKit.ensureInitialized();
   runApp(const MyApp());
 }

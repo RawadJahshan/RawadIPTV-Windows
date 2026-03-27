@@ -1,5 +1,3 @@
-import 'dart:convert';
-
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -133,25 +131,14 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
 
 
 
-  Future<Duration?> _loadSavedStartAt() async {
-    final prefs = await SharedPreferences.getInstance();
-    final raw = prefs.getString('movie_progress_${widget.movie.streamId}');
-    if (raw == null || raw.isEmpty) return null;
-
-    try {
-      final decoded = jsonDecode(raw);
-      if (decoded is! Map<String, dynamic>) return null;
-
-      final positionMs = int.tryParse(decoded['positionMs'].toString()) ?? 0;
-      if (positionMs <= 0) return null;
-      return Duration(milliseconds: positionMs);
-    } catch (_) {
-      return null;
-    }
-  }
-
   Future<void> _openMoviePlayer() async {
-    final startAt = await _loadSavedStartAt();
+    final prefs = await SharedPreferences.getInstance();
+    final savedPos = prefs.getInt('progress_pos_${widget.movie.streamId}') ?? 0;
+    final savedDur = prefs.getInt('progress_dur_${widget.movie.streamId}') ?? 0;
+    final startAt = savedPos > 0 && savedDur > 0
+        ? Duration(milliseconds: savedPos)
+        : null;
+
     if (!mounted) return;
 
     final streamUrl = widget.movie.streamUrl(
@@ -160,7 +147,8 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
       widget.xtreamApi.password,
     );
 
-    await Navigator.of(context).push(
+    await Navigator.push(
+      context,
       MaterialPageRoute(
         builder: (_) => MoviePlayerScreen(
           streamUrl: streamUrl,
