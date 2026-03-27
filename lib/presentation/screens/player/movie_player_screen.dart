@@ -7,6 +7,8 @@ import '../../../data/services/watch_progress_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:window_manager/window_manager.dart';
 
+import '../../../utils/vlc_subtitle_support.dart';
+
 class MoviePlayerScreen extends StatefulWidget {
   final String streamUrl;
   final String title;
@@ -46,6 +48,11 @@ class _MoviePlayerScreenState extends State<MoviePlayerScreen> {
   Timer? _progressTimer;
   List<String> _audioTracks = [];
   int _selectedAudioTrack = 0;
+
+  List<VlcSubtitleTrack> _subtitleTracks = [];
+  int _selectedSubtitleTrack = VlcSubtitleSupport.disabledTrackId;
+  bool _subtitleControlViaLibVlc = false;
+
   int _aspectRatioIndex = 0;
 
   final List<Map<String, dynamic>> _aspectRatios = [
@@ -64,6 +71,7 @@ class _MoviePlayerScreenState extends State<MoviePlayerScreen> {
 
   Future<void> _initPlayer() async {
     _player = Player(id: widget.streamId);
+    VlcSubtitleSupport.logRuntimeCheck();
 
     _player.positionStream.listen((pos) {
       if (!mounted) return;
@@ -96,7 +104,7 @@ class _MoviePlayerScreenState extends State<MoviePlayerScreen> {
       autoStart: true,
     );
 
-    _player.currentStream.listen((current) {
+    _player.currentStream.listen((current) async {
       if (!mounted) return;
       final audioCount = _player.audioTrackCount;
       setState(() {
@@ -104,6 +112,7 @@ class _MoviePlayerScreenState extends State<MoviePlayerScreen> {
             ? List.generate(audioCount, (i) => 'Audio Track ${i + 1}')
             : [];
       });
+      await _refreshSubtitleTracks();
     });
 
     if (widget.startAt != null && widget.startAt! > Duration.zero) {
@@ -196,6 +205,51 @@ class _MoviePlayerScreenState extends State<MoviePlayerScreen> {
   Future<void> _exitFullscreen() async {
     setState(() => _isFullscreen = false);
     await WindowManager.instance.setFullScreen(false);
+  }
+
+
+  Future<void> _refreshSubtitleTracks() async {
+    final embedded = await VlcSubtitleSupport.getEmbeddedSubtitleTracks(_player);
+    int selected =
+        VlcSubtitleSupport.getCurrentSubtitleTrack(_player) ?? _selectedSubtitleTrack;
+
+    bool controlViaLibVlc = embedded.isNotEmpty;
+    var tracks = embedded;
+
+    if (!controlViaLibVlc) {
+      final ffprobeTracks =
+          await VlcSubtitleSupport.inspectEmbeddedTracksWithFfprobe(widget.streamUrl);
+      if (ffprobeTracks.isNotEmpty) {
+        tracks = ffprobeTracks;
+      }
+    }
+
+    if (!mounted) return;
+    setState(() {
+      _subtitleTracks = tracks;
+      _subtitleControlViaLibVlc = controlViaLibVlc;
+      _selectedSubtitleTrack = selected;
+    });
+  }
+
+  Future<void> _selectSubtitleTrack(int id) async {
+    final applied = await VlcSubtitleSupport.setSubtitleTrack(_player, id);
+    if (mounted) {
+      setState(() {
+        _selectedSubtitleTrack = id;
+        _subtitleControlViaLibVlc = applied;
+      });
+    }
+    if (!applied && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Subtitle switching is unavailable in current dart_vlc build. '
+            'Detected tracks are from ffprobe fallback only.',
+          ),
+        ),
+      );
+    }
   }
 
   @override
@@ -422,6 +476,72 @@ class _MoviePlayerScreenState extends State<MoviePlayerScreen> {
                                                         ),
                                                       ))
                                                   .toList(),
+                                            ),
+                                          if (_subtitleTracks.isNotEmpty)
+                                            PopupMenuButton<int>(
+                                              tooltip: _subtitleControlViaLibVlc
+                                                  ? 'Subtitles'
+                                                  : 'Subtitles (inspect-only)',
+                                              icon: const Icon(Icons.subtitles,
+                                                  color: Colors.white),
+                                              onSelected: _selectSubtitleTrack,
+                                              itemBuilder: (_) {
+                                                final items = <PopupMenuEntry<int>>[
+                                                  PopupMenuItem(
+                                                    value: VlcSubtitleSupport
+                                                        .disabledTrackId,
+                                                    child: Row(
+                                                      children: [
+                                                        if (_selectedSubtitleTrack ==
+                                                            VlcSubtitleSupport
+                                                                .disabledTrackId)
+                                                          const Padding(
+                                                            padding:
+                                                                EdgeInsets.only(
+                                                                    right: 8),
+                                                            child: Icon(
+                                                              Icons.check,
+                                                              size: 16,
+                                                            ),
+                                                          ),
+                                                        const Text('Off'),
+                                                      ],
+                                                    ),
+                                                  ),
+                                                  const PopupMenuDivider(),
+                                                ];
+                                                items.addAll(
+                                                  _subtitleTracks.map(
+                                                    (track) => PopupMenuItem<int>(
+                                                      value: track.id,
+                                                      child: Row(
+                                                        children: [
+                                                          if (_selectedSubtitleTrack ==
+                                                              track.id)
+                                                            const Padding(
+                                                              padding:
+                                                                  EdgeInsets.only(
+                                                                      right: 8),
+                                                              child: Icon(
+                                                                Icons.check,
+                                                                size: 16,
+                                                              ),
+                                                            ),
+                                                          Expanded(
+                                                            child: Text(
+                                                              track.label,
+                                                              overflow:
+                                                                  TextOverflow
+                                                                      .ellipsis,
+                                                            ),
+                                                          ),
+                                                        ],
+                                                      ),
+                                                    ),
+                                                  ),
+                                                );
+                                                return items;
+                                              },
                                             ),
                                           PopupMenuButton<int>(
                                             tooltip: 'Aspect Ratio',
