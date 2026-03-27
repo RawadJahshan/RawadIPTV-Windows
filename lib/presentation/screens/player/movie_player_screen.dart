@@ -44,9 +44,9 @@ class _MoviePlayerScreenState extends State<MoviePlayerScreen> {
   Duration _position = Duration.zero;
   Duration _duration = Duration.zero;
   Timer? _progressTimer;
-  int _audioTrackCount = 0;
+  List<AudioTrack> _audioTracks = [];
   List<SubtitleTrack> _subtitleTracks = [];
-  int _selectedAudioTrack = 0;
+  int _selectedAudioTrack = -1;
   int _selectedSubTrack = -1;
   int _aspectRatioIndex = 0;
   bool _didResume = false;
@@ -89,21 +89,20 @@ class _MoviePlayerScreenState extends State<MoviePlayerScreen> {
   }
 
   Future<void> _refreshSubtitleTracks() async {
-  debugPrint('[Tracks] audioTrackCount: ${_player.audioTrackCount}');
-  debugPrint('[Tracks] subtitleTrack: ${_player.subtitleTrack}');
-  
-  final tracks = _player.subtitleTracks;
-  debugPrint('[Tracks] subtitleTracks count: ${tracks.length}');
-  for (final t in tracks) {
-    debugPrint('[Tracks] track: id=${t.id} name=${t.name}');
+    final subTracks = _player.subtitleTracks;
+    final audioTracks = _player.audioTracks;
+    debugPrint(
+      '[Player] subs=${subTracks.map((t) => '${t.id}:${t.name}').toList()}',
+    );
+    debugPrint(
+      '[Player] audio=${audioTracks.map((t) => '${t.id}:${t.name}').toList()}',
+    );
+    if (!mounted) return;
+    setState(() {
+      _subtitleTracks = subTracks;
+      _audioTracks = audioTracks;
+    });
   }
-  
-  if (!mounted) return;
-  setState(() {
-    _subtitleTracks = tracks;
-    _audioTrackCount = _player.audioTrackCount;
-  });
-}
 
   void _attachPlayerListeners({Duration? resumeAt}) {
     _player.positionStream.listen((pos) {
@@ -430,32 +429,33 @@ class _MoviePlayerScreenState extends State<MoviePlayerScreen> {
                                             onPressed: () => _skip(30),
                                           ),
                                           // Audio tracks
-                                          if (_audioTrackCount > 1)
+                                          if (_audioTracks.length > 1)
                                             PopupMenuButton<int>(
                                               tooltip: 'Audio Track',
                                               icon: const Icon(Icons.audiotrack,
                                                   color: Colors.white),
-                                              onSelected: (index) {
-                                                setState(
-                                                    () => _selectedAudioTrack = index);
-                                                _player.setAudioTrack(index);
+                                              onSelected: (trackId) {
+                                                setState(() =>
+                                                    _selectedAudioTrack = trackId);
+                                                _player.setAudioTrack(trackId);
                                               },
-                                              itemBuilder: (_) => List.generate(
-                                                _audioTrackCount,
-                                                (index) => PopupMenuItem<int>(
-                                                  value: index,
+                                              itemBuilder: (_) => _audioTracks
+                                                  .map(
+                                                (track) => PopupMenuItem<int>(
+                                                  value: track.id,
                                                   child: Row(
                                                     children: [
-                                                      if (_selectedAudioTrack == index)
+                                                      if (_selectedAudioTrack ==
+                                                          track.id)
                                                         const Padding(
                                                           padding: EdgeInsets.only(right: 8),
                                                           child: Icon(Icons.check, size: 16),
                                                         ),
-                                                      Text('Track $index'),
+                                                      Text(track.name),
                                                     ],
                                                   ),
                                                 ),
-                                              ),
+                                              ).toList(),
                                             ),
                                           PopupMenuButton<int>(
                                             tooltip: 'Subtitles',
