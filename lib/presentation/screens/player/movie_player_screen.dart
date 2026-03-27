@@ -83,9 +83,11 @@ class _MoviePlayerScreenState extends State<MoviePlayerScreen> {
       native.setProperty('hr-seek', 'yes');
       native.setProperty('hr-seek-demuxer-offset', '0');
       native.setProperty('index-mode', 'default');
+      native.setProperty('demuxer-mkv-probe-video-duration', 'yes');
       native.setProperty('demuxer-lavf-o-append', 'fflags=+fastseek');
       native.setProperty('demuxer-lavf-o-append', 'analyzeduration=100000');
       native.setProperty('demuxer-lavf-o-append', 'probesize=100000');
+      native.setProperty('demuxer-lavf-o-append', 'seekable=1');
     }
   }
 
