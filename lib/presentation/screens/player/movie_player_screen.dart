@@ -37,9 +37,7 @@ class _MoviePlayerScreenState extends State<MoviePlayerScreen> {
   Duration _duration = Duration.zero;
   Timer? _progressTimer;
   List<dynamic> _audioTracks = [];
-  List<dynamic> _subtitleTracks = [];
   int _selectedAudioTrack = 0;
-  int _selectedSubtitleTrack = -1;
 
   @override
   void initState() {
@@ -83,24 +81,16 @@ class _MoviePlayerScreenState extends State<MoviePlayerScreen> {
 
     _player.currentStream.listen((current) {
       if (!mounted) return;
-      if (current.medias != null) {
-        final media = current.medias!.values.firstOrNull;
-        if (media != null) {
-          setState(() {
-            _audioTracks = _player.audioTrackCount > 0
-                ? List.generate(
-                    _player.audioTrackCount,
-                    (i) => 'Audio Track ${i + 1}',
-                  )
-                : [];
-            _subtitleTracks = _player.subtitleCount > 0
-                ? List.generate(
-                    _player.subtitleCount,
-                    (i) => 'Subtitle ${i + 1}',
-                  )
-                : [];
-          });
-        }
+      final media = current.medias.firstOrNull;
+      if (media != null) {
+        setState(() {
+          _audioTracks = _player.audioTrackCount > 0
+              ? List.generate(
+                  _player.audioTrackCount,
+                  (i) => 'Audio Track ${i + 1}',
+                )
+              : [];
+        });
       }
     });
 
@@ -381,51 +371,6 @@ class _MoviePlayerScreenState extends State<MoviePlayerScreen> {
                                                         ),
                                                       ))
                                                   .toList(),
-                                            ),
-                                          // Subtitle tracks
-                                          if (_subtitleTracks.isNotEmpty)
-                                            PopupMenuButton<int>(
-                                              icon: const Icon(
-                                                  Icons.closed_caption,
-                                                  color: Colors.white),
-                                              onSelected: (index) {
-                                                if (index == -1) {
-                                                  _player.setSubtitleTrack(-1);
-                                                } else {
-                                                  _player
-                                                      .setSubtitleTrack(index);
-                                                }
-                                                setState(() =>
-                                                    _selectedSubtitleTrack =
-                                                        index);
-                                              },
-                                              itemBuilder: (_) => [
-                                                const PopupMenuItem(
-                                                    value: -1,
-                                                    child: Text('Off')),
-                                                ..._subtitleTracks
-                                                    .asMap()
-                                                    .entries
-                                                    .map((e) => PopupMenuItem(
-                                                          value: e.key,
-                                                          child: Row(
-                                                            children: [
-                                                              if (_selectedSubtitleTrack ==
-                                                                  e.key)
-                                                                const Icon(
-                                                                  Icons.check,
-                                                                  size: 16,
-                                                                ),
-                                                              if (_selectedSubtitleTrack ==
-                                                                  e.key)
-                                                                const SizedBox(
-                                                                    width: 8),
-                                                              Text(e.value
-                                                                  .toString()),
-                                                            ],
-                                                          ),
-                                                        )),
-                                              ],
                                             ),
                                           IconButton(
                                             icon: Icon(
