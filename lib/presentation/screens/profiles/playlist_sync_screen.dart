@@ -58,7 +58,7 @@ class _PlaylistSyncScreenState extends State<PlaylistSyncScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final fraction = _progress.fraction.clamp(0, 1);
+    final fraction = _progress.fraction.clamp(0.0, 1.0).toDouble();
 
     return Scaffold(
       backgroundColor: const Color(0xFF1E1E1E),
