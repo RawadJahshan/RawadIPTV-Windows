@@ -5,9 +5,11 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../../data/datasources/remote/xtream_api.dart';
 import '../../../data/models/profile.dart';
 import '../../../data/models/user_info.dart';
+import '../../../data/services/catalog_cache_service.dart';
 import '../../../data/services/profile_service.dart';
 import '../home/home_dashboard.dart';
 import 'package:intl/intl.dart';
+import 'playlist_sync_screen.dart';
 
 String formatUnixTimestamp(String unixTimestamp) {
   try {
@@ -109,13 +111,29 @@ class _ProfilesScreenState extends State<ProfilesScreen> {
     }
   }
 
-  void _showAddProfileDialog() {
-    showDialog(
+  Future<void> _showAddProfileDialog() async {
+    final result = await showDialog<Map<String, dynamic>>(
       context: context,
       builder: (context) => _AddProfileDialog(
         onProfileAdded: () {
           _loadProfiles();
         },
+      ),
+    );
+
+    if (result == null || !mounted) return;
+    final profile = result['profile'] as Profile?;
+    final xtreamApi = result['xtreamApi'] as XtreamApi?;
+    if (profile == null || xtreamApi == null) return;
+
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(
+        builder: (_) => HomeDashboard(
+          username: profile.username,
+          expiryDate: profile.expiryDate ?? 'Unknown',
+          xtreamApi: xtreamApi,
+        ),
       ),
     );
   }
@@ -404,6 +422,24 @@ class _AddProfileDialogState extends State<_AddProfileDialog> {
   bool _isLoading = false;
   bool _obscurePassword = true;
 
+  Future<bool> _runCatalogSync({
+    required XtreamApi xtreamApi,
+    required String profileKey,
+    required String title,
+  }) async {
+    final result = await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => PlaylistSyncScreen(
+          xtreamApi: xtreamApi,
+          profileKey: profileKey,
+          title: title,
+        ),
+      ),
+    );
+    return result != null;
+  }
+
   @override
   void dispose() {
     _playlistNameController.dispose();
@@ -483,12 +519,41 @@ class _AddProfileDialogState extends State<_AddProfileDialog> {
         avatarLetter: playlistName[0].toUpperCase(),
       );
 
-      await ProfileService.saveProfile(profile);
+      final xtreamApi = XtreamApi();
+      xtreamApi.setCredentials(
+        serverUrl: serverUrl,
+        username: username,
+        password: password,
+      );
+
+      final profileKey = CatalogCacheService.buildProfileKey(
+        serverUrl: serverUrl,
+        username: username,
+      );
 
       if (!mounted) return;
       setState(() => _isLoading = false);
-      Navigator.pop(context);
+
+      final syncOk = await _runCatalogSync(
+        xtreamApi: xtreamApi,
+        profileKey: profileKey,
+        title: 'Adding Playlist Content',
+      );
+
+      if (!syncOk || !mounted) return;
+
+      await ProfileService.saveProfile(profile);
+      await ProfileService.setActiveProfile(profile.id);
+
       widget.onProfileAdded();
+      if (!mounted) return;
+      Navigator.pop(
+        context,
+        <String, dynamic>{
+          'profile': profile,
+          'xtreamApi': xtreamApi,
+        },
+      );
     } catch (_) {
       if (!mounted) return;
       setState(() => _isLoading = false);
