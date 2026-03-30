@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../../data/datasources/remote/xtream_api.dart';
 import '../../../data/models/live_tv_category.dart';
+import '../../../data/services/catalog_cache_service.dart';
 import 'channels_detail_screen.dart';
 
 class LiveTvCategoriesScreen extends StatefulWidget {
@@ -25,10 +26,18 @@ class _LiveTvCategoriesScreenState
   }
 
   Future<List<LiveTvCategory>> _fetchCategories() async {
+    final profileKey = CatalogCacheService.buildProfileKey(
+      serverUrl: widget.xtreamApi.serverUrl,
+      username: widget.xtreamApi.username,
+    );
+
+    final cached = await CatalogCacheService.getLiveCategories(profileKey);
+    if (cached.isNotEmpty) {
+      return cached.map((json) => LiveTvCategory.fromJson(json)).toList();
+    }
+
     final raw = await widget.xtreamApi.getLiveCategories();
-    return raw
-        .map((json) => LiveTvCategory.fromJson(json))
-        .toList();
+    return raw.map((json) => LiveTvCategory.fromJson(json)).toList();
   }
 
   @override

@@ -5,6 +5,7 @@ import 'package:media_kit_video/media_kit_video.dart';
 import '../../../data/datasources/remote/xtream_api.dart';
 import '../../../data/models/channel.dart';
 import '../../../data/models/live_tv_category.dart';
+import '../../../data/services/catalog_cache_service.dart';
 import '../../../utils/favorites_manager.dart';
 
 class ChannelsDetailScreen extends StatefulWidget {
@@ -145,9 +146,23 @@ class _ChannelsDetailScreenState extends State<ChannelsDetailScreen> {
   }
 
   Future<List<Channel>> _loadChannels() async {
-    final rawChannels = await widget.xtreamApi.getLiveStreams(
-      categoryId: widget.category.id,
+    final profileKey = CatalogCacheService.buildProfileKey(
+      serverUrl: widget.xtreamApi.serverUrl,
+      username: widget.xtreamApi.username,
     );
+
+    final cached = await CatalogCacheService.getLiveStreams(profileKey);
+    final cachedFiltered = cached.where((entry) {
+      final categoryId = int.tryParse(entry['category_id']?.toString() ?? '');
+      return categoryId == widget.category.id;
+    }).toList();
+
+    final rawChannels = cachedFiltered.isNotEmpty
+        ? cachedFiltered
+        : await widget.xtreamApi.getLiveStreams(
+            categoryId: widget.category.id,
+          );
+
     final channels = rawChannels
         .map((json) => Channel.fromJson(
               json,

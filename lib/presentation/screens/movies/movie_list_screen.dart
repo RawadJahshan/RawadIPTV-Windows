@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 
 import '../../../data/datasources/remote/xtream_api.dart';
 import '../../../data/models/movie_item.dart';
+import '../../../data/services/catalog_cache_service.dart';
 import '../../../data/services/favorites_service.dart';
 import '../../../data/services/watch_progress_service.dart';
 import 'movie_detail_screen.dart';
@@ -126,13 +127,24 @@ class _MovieListScreenState extends State<MovieListScreen> {
     }
 
     try {
-      final List<Map<String, dynamic>> rawStreams;
-      if (widget.categoryId == -1) {
+      final profileKey = CatalogCacheService.buildProfileKey(
+        serverUrl: widget.xtreamApi.serverUrl,
+        username: widget.xtreamApi.username,
+      );
+      final cachedStreams = await CatalogCacheService.getVodStreams(profileKey);
+
+      List<Map<String, dynamic>> rawStreams;
+      if (cachedStreams.isNotEmpty) {
+        rawStreams = widget.categoryId == -1
+            ? cachedStreams
+            : cachedStreams.where((entry) {
+                final categoryId = int.tryParse(entry['category_id']?.toString() ?? '');
+                return categoryId == widget.categoryId;
+              }).toList();
+      } else if (widget.categoryId == -1) {
         rawStreams = await widget.xtreamApi.getVodStreamsStrict();
       } else {
-        rawStreams = await widget.xtreamApi.getVodStreamsStrict(
-          categoryId: widget.categoryId,
-        );
+        rawStreams = await widget.xtreamApi.getVodStreamsStrict(categoryId: widget.categoryId);
       }
 
       final movies = rawStreams.map((json) => MovieItem.fromJson(json)).toList();

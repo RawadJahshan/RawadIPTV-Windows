@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../data/datasources/remote/xtream_api.dart';
+import '../../../data/services/catalog_cache_service.dart';
 import '../../../data/services/favorites_service.dart';
 import '../../../data/services/watch_progress_service.dart';
 import '../player/movie_player_screen.dart';
@@ -65,8 +66,21 @@ class _SeriesListScreenState extends State<SeriesListScreen> {
     }
 
     try {
-      final List<Map<String, dynamic>> rawSeries;
-      if (widget.categoryId == -1) {
+      final profileKey = CatalogCacheService.buildProfileKey(
+        serverUrl: widget.xtreamApi.serverUrl,
+        username: widget.xtreamApi.username,
+      );
+      final cachedSeries = await CatalogCacheService.getSeriesList(profileKey);
+
+      List<Map<String, dynamic>> rawSeries;
+      if (cachedSeries.isNotEmpty) {
+        rawSeries = widget.categoryId == -1
+            ? cachedSeries
+            : cachedSeries.where((entry) {
+                final categoryId = int.tryParse(entry['category_id']?.toString() ?? '');
+                return categoryId == widget.categoryId;
+              }).toList();
+      } else if (widget.categoryId == -1) {
         rawSeries = await widget.xtreamApi.getSeries();
       } else {
         rawSeries = await widget.xtreamApi.getSeries(categoryId: widget.categoryId);
