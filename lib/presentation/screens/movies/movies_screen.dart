@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../data/datasources/remote/xtream_api.dart';
 import '../../../data/models/movie_category.dart';
+import '../../../data/services/catalog_cache_service.dart';
 import 'movie_list_screen.dart';
 
 class MoviesScreen extends StatefulWidget {
@@ -31,7 +32,12 @@ class _MoviesScreenState extends State<MoviesScreen> {
   }
 
   Future<List<MovieCategory>> _fetchCategories() async {
-    final raw = await widget.xtreamApi.getVodCategories();
+    final profileKey = CatalogCacheService.buildProfileKey(
+      serverUrl: widget.xtreamApi.serverUrl,
+      username: widget.xtreamApi.username,
+    );
+    final cached = await CatalogCacheService.getVodCategories(profileKey);
+    final raw = cached.isNotEmpty ? cached : await widget.xtreamApi.getVodCategories();
     return raw.map((json) => MovieCategory.fromJson(json)).toList();
   }
 

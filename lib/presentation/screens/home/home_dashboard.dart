@@ -2,8 +2,10 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../../../data/services/catalog_cache_service.dart';
 import '../live_tv/live_tv_categories_screen.dart';
 import '../movies/movies_screen.dart';
+import '../profiles/playlist_sync_screen.dart';
 import '../series/series_categories_screen.dart';
 import '../../../data/datasources/remote/xtream_api.dart';
 import '../profiles/profiles_screen.dart';
@@ -27,11 +29,13 @@ class HomeDashboard extends StatefulWidget {
 
 class _HomeDashboardState extends State<HomeDashboard> {
   String _playlistName = 'My IPTV';
+  String _lastRefreshText = 'Never';
 
   @override
   void initState() {
     super.initState();
     _loadPlaylistName();
+    _loadLastRefresh();
   }
 
   Future<void> _loadPlaylistName() async {
@@ -39,6 +43,44 @@ class _HomeDashboardState extends State<HomeDashboard> {
     final savedPlaylistName = prefs.getString('playlist_name') ?? 'My IPTV';
     if (!mounted) return;
     setState(() => _playlistName = savedPlaylistName);
+  }
+
+  Future<void> _loadLastRefresh() async {
+    final profileKey = CatalogCacheService.buildProfileKey(
+      serverUrl: widget.xtreamApi.serverUrl,
+      username: widget.xtreamApi.username,
+    );
+    final lastRefresh = await CatalogCacheService.getLastRefresh(profileKey);
+    if (!mounted) return;
+    setState(() {
+      _lastRefreshText = lastRefresh == null
+          ? 'Never'
+          : DateFormat('yyyy-MM-dd HH:mm').format(lastRefresh);
+    });
+  }
+
+  Future<void> _refreshPlaylist() async {
+    final profileKey = CatalogCacheService.buildProfileKey(
+      serverUrl: widget.xtreamApi.serverUrl,
+      username: widget.xtreamApi.username,
+    );
+    final result = await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => PlaylistSyncScreen(
+          xtreamApi: widget.xtreamApi,
+          profileKey: profileKey,
+          title: 'Refreshing Playlist Content',
+        ),
+      ),
+    );
+
+    if (result != null && mounted) {
+      await _loadLastRefresh();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Playlist refreshed successfully')),
+      );
+    }
   }
 
   Widget buildTile({
@@ -211,31 +253,48 @@ class _HomeDashboardState extends State<HomeDashboard> {
               Positioned(
                 top: 24,
                 left: 0,
-                child: ElevatedButton.icon(
-                  onPressed: () {
-                    Navigator.pushReplacement(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => const ProfilesScreen(),
+                child: Row(
+                  children: [
+                    ElevatedButton.icon(
+                      onPressed: () {
+                        Navigator.pushReplacement(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => const ProfilesScreen(),
+                          ),
+                        );
+                      },
+                      icon: const Icon(Icons.switch_account, size: 18),
+                      label: const Text('Switch Profile'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF1A1A2E),
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
                       ),
-                    );
-                  },
-                  icon: const Icon(Icons.switch_account, size: 18),
-                  label: const Text('Switch Profile'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF1A1A2E),
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10),
                     ),
-                  ),
+                    const SizedBox(width: 12),
+                    ElevatedButton.icon(
+                      onPressed: _refreshPlaylist,
+                      icon: const Icon(Icons.refresh, size: 18),
+                      label: const Text('Refresh Playlist'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF004A7C),
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ),
               Positioned(
                 bottom: 24,
                 right: 36,
                 child: Text(
-                  'Logged in: ${widget.username}\nExpiration: ${widget.expiryDate}',
+                  'Logged in: ${widget.username}\nExpiration: ${widget.expiryDate}\nLast Refresh: $_lastRefreshText',
                   textAlign: TextAlign.right,
                   style: const TextStyle(
                     color: Colors.white70,
