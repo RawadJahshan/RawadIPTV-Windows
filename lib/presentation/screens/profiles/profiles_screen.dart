@@ -6,7 +6,9 @@ import '../../../core/constants/app_constants.dart';
 import '../../../data/datasources/remote/xtream_api.dart';
 import '../../../data/models/profile.dart';
 import '../../../data/models/user_info.dart';
+import '../../../data/services/content_sync_service.dart';
 import '../../../data/services/profile_service.dart';
+import '../content_sync/content_sync_screen.dart';
 import '../home/home_dashboard.dart';
 import 'package:intl/intl.dart';
 
@@ -105,12 +107,51 @@ class _ProfilesScreenState extends State<ProfilesScreen> {
   }
 
   void _showAddProfileDialog() {
+    final isFirstProfile = _profiles.isEmpty;
     showDialog(
       context: context,
       builder: (context) => _AddProfileDialog(
-        onProfileAdded: () {
-          _loadProfiles();
+        onProfileAdded: (profile) async {
+          await _loadProfiles();
+          if (isFirstProfile) {
+            await _runFirstProfileSync(profile);
+          }
         },
+      ),
+    );
+  }
+
+  Future<void> _runFirstProfileSync(Profile profile) async {
+    final xtreamApi = XtreamApi();
+    xtreamApi.setCredentials(
+      serverUrl: AppConstants.serverUrl,
+      username: profile.username,
+      password: profile.password,
+    );
+    await ProfileService.setActiveProfile(profile.id);
+
+    if (!mounted) return;
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ContentSyncScreen(
+          title: 'Loading Content',
+          subtitle: 'Please wait while we load the content for the first time...',
+          syncService: ContentSyncService(xtreamApi: xtreamApi),
+          onSync: (service) => service.syncInitialContent(),
+          onDone: (syncContext) {
+            Navigator.pushReplacement(
+              syncContext,
+              MaterialPageRoute(
+                builder: (_) => HomeDashboard(
+                  username: profile.username,
+                  expiryDate: profile.expiryDate ?? 'Unknown',
+                  xtreamApi: xtreamApi,
+                ),
+              ),
+            );
+          },
+        ),
       ),
     );
   }
@@ -383,7 +424,7 @@ class _ProfileCard extends StatelessWidget {
 }
 
 class _AddProfileDialog extends StatefulWidget {
-  final VoidCallback onProfileAdded;
+  final ValueChanged<Profile> onProfileAdded;
 
   const _AddProfileDialog({required this.onProfileAdded});
 
@@ -463,7 +504,7 @@ class _AddProfileDialogState extends State<_AddProfileDialog> {
       if (!mounted) return;
       setState(() => _isLoading = false);
       Navigator.pop(context);
-      widget.onProfileAdded();
+      widget.onProfileAdded(profile);
     } catch (_) {
       if (!mounted) return;
       setState(() => _isLoading = false);

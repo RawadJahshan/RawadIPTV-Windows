@@ -184,6 +184,15 @@ class XtreamApi {
     }
   }
 
+  Future<Map<String, dynamic>> getAccountInfo() async {
+    try {
+      return await _getMapWithCache('$_baseUrl&action=get_account_info');
+    } catch (e) {
+      debugPrint('getAccountInfo error: $e');
+      return <String, dynamic>{};
+    }
+  }
+
   Future<Map<String, dynamic>> getSeriesInfo(int seriesId) async {
     final url = '$_baseUrl&action=get_series_info&series_id=$seriesId';
     try {
@@ -235,6 +244,25 @@ class XtreamApi {
     final response = await _dio.get(url, options: options);
     final parsed = _parseList(response.data);
     _memoryResponseCache[url] = parsed.map((item) => Map<String, dynamic>.from(item)).toList();
+    return parsed;
+  }
+
+  Future<Map<String, dynamic>> _getMapWithCache(
+    String url, {
+    Options? options,
+  }) async {
+    final cached = _memoryResponseCache[url];
+    if (cached is Map<String, dynamic>) {
+      return Map<String, dynamic>.from(cached);
+    }
+
+    final response = await _dio.get(url, options: options);
+    final data = response.data;
+    if (data is! Map) {
+      return <String, dynamic>{};
+    }
+    final parsed = Map<String, dynamic>.from(data);
+    _memoryResponseCache[url] = Map<String, dynamic>.from(parsed);
     return parsed;
   }
 }

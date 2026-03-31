@@ -5,6 +5,8 @@ import '../live_tv/live_tv_categories_screen.dart';
 import '../movies/movies_screen.dart';
 import '../series/series_categories_screen.dart';
 import '../../../data/datasources/remote/xtream_api.dart';
+import '../../../data/services/content_sync_service.dart';
+import '../content_sync/content_sync_screen.dart';
 import '../profiles/profiles_screen.dart';
 import '../settings/settings_screen.dart';
 
@@ -135,6 +137,28 @@ class HomeDashboard extends StatelessWidget {
                                 context,
                                 MaterialPageRoute(
                                   builder: (_) => SeriesCategoriesScreen(xtreamApi: xtreamApi),
+                                ),
+                              );
+                            },
+                          ),
+                          buildTile(
+                            label: 'REFRESH CONTENT',
+                            icon: Icons.refresh,
+                            startColor: const Color(0xFF3A7BD5),
+                            endColor: const Color(0xFF00D2FF),
+                            onTap: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => ContentSyncScreen(
+                                    title: 'Refreshing Content',
+                                    subtitle: 'Please wait while we update the content...',
+                                    syncService: ContentSyncService(xtreamApi: xtreamApi),
+                                    onSync: (service) => service.syncRefreshContent(),
+                                    onDone: (syncContext) {
+                                      Navigator.pop(syncContext);
+                                    },
+                                  ),
                                 ),
                               );
                             },
