@@ -7,6 +7,7 @@ import '../series/series_categories_screen.dart';
 import '../../../data/datasources/remote/xtream_api.dart';
 import '../profiles/profiles_screen.dart';
 import '../settings/settings_screen.dart';
+import '../content_sync/content_progress_screen.dart';
 
 class HomeDashboard extends StatelessWidget {
   final String username;
@@ -135,6 +136,26 @@ class HomeDashboard extends StatelessWidget {
                                 context,
                                 MaterialPageRoute(
                                   builder: (_) => SeriesCategoriesScreen(xtreamApi: xtreamApi),
+                                ),
+                              );
+                            },
+                          ),
+                          buildTile(
+                            label: 'REFRESH CONTENT',
+                            icon: Icons.refresh,
+                            startColor: const Color(0xFF6a11cb),
+                            endColor: const Color(0xFF2575fc),
+                            onTap: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => ContentProgressScreen(
+                                    title: 'Refreshing Content',
+                                    subtitle: 'Please wait while we update the content...',
+                                    onRun: () => xtreamApi.warmupLightweightContent(
+                                      forceRefresh: true,
+                                    ),
+                                  ),
                                 ),
                               );
                             },
