@@ -8,6 +8,7 @@ import '../../../data/models/profile.dart';
 import '../../../data/models/user_info.dart';
 import '../../../data/services/profile_service.dart';
 import '../home/home_dashboard.dart';
+import '../content_sync/content_progress_screen.dart';
 import 'package:intl/intl.dart';
 
 String formatUnixTimestamp(String unixTimestamp) {
@@ -108,8 +109,42 @@ class _ProfilesScreenState extends State<ProfilesScreen> {
     showDialog(
       context: context,
       builder: (context) => _AddProfileDialog(
-        onProfileAdded: () {
-          _loadProfiles();
+        onProfileAdded: (profile) async {
+          await _loadProfiles();
+          if (!mounted) return;
+
+          final xtreamApi = XtreamApi();
+          xtreamApi.setCredentials(
+            serverUrl: AppConstants.serverUrl,
+            username: profile.username,
+            password: profile.password,
+          );
+
+          await ProfileService.setActiveProfile(profile.id);
+          if (!mounted) return;
+
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(
+              builder: (_) => ContentProgressScreen(
+                title: 'Loading Content',
+                subtitle: 'Please wait while we load the content for the first time...',
+                onRun: () => xtreamApi.warmupLightweightContent(),
+                onCompleted: (loadingContext) {
+                  Navigator.pushReplacement(
+                    loadingContext,
+                    MaterialPageRoute(
+                      builder: (_) => HomeDashboard(
+                        username: profile.username,
+                        expiryDate: profile.expiryDate ?? 'Unknown',
+                        xtreamApi: xtreamApi,
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+          );
         },
       ),
     );
@@ -383,7 +418,7 @@ class _ProfileCard extends StatelessWidget {
 }
 
 class _AddProfileDialog extends StatefulWidget {
-  final VoidCallback onProfileAdded;
+  final Future<void> Function(Profile profile) onProfileAdded;
 
   const _AddProfileDialog({required this.onProfileAdded});
 
@@ -463,7 +498,7 @@ class _AddProfileDialogState extends State<_AddProfileDialog> {
       if (!mounted) return;
       setState(() => _isLoading = false);
       Navigator.pop(context);
-      widget.onProfileAdded();
+      await widget.onProfileAdded(profile);
     } catch (_) {
       if (!mounted) return;
       setState(() => _isLoading = false);

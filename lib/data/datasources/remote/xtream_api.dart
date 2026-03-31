@@ -2,10 +2,28 @@ import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import '../../../core/constants/app_constants.dart';
 
+class _MemoryCacheEntry {
+  final List<Map<String, dynamic>> data;
+  final DateTime cachedAt;
+  final Duration ttl;
+
+  const _MemoryCacheEntry({
+    required this.data,
+    required this.cachedAt,
+    required this.ttl,
+  });
+
+  bool get isExpired => DateTime.now().difference(cachedAt) > ttl;
+}
+
 class XtreamApi {
   late final Dio _dio;
   static final Set<XtreamApi> _instances = <XtreamApi>{};
-  final Map<String, dynamic> _memoryResponseCache = <String, dynamic>{};
+  final Map<String, _MemoryCacheEntry> _memoryResponseCache = <String, _MemoryCacheEntry>{};
+
+  static const Duration _categoriesTtl = Duration(minutes: 20);
+  static const Duration _categoryItemsTtl = Duration(minutes: 10);
+  static const Duration _accountInfoTtl = Duration(minutes: 5);
 
   late String _serverUrl;
   late String _username;
@@ -71,11 +89,28 @@ class XtreamApi {
 
   String get _baseUrl => '$_serverUrl/player_api.php?username=$_username&password=$_password';
 
+  void clearInMemoryCache() {
+    _memoryResponseCache.clear();
+  }
+
   static void clearAllInMemoryCaches() {
     for (final instance in _instances) {
       instance._memoryResponseCache.clear();
     }
     debugPrint('XtreamApi: Cleared in-memory metadata/list caches for ${_instances.length} instance(s)');
+  }
+
+  Future<void> warmupLightweightContent({bool forceRefresh = false}) async {
+    if (forceRefresh) {
+      clearInMemoryCache();
+    }
+
+    await Future.wait<void>([
+      getAccountInfo(forceRefresh: forceRefresh),
+      getLiveCategories(forceRefresh: forceRefresh),
+      getVodCategories(forceRefresh: forceRefresh),
+      getSeriesCategories(forceRefresh: forceRefresh),
+    ]);
   }
 
   Future<Map<String, dynamic>> authenticate(
@@ -98,22 +133,41 @@ class XtreamApi {
     }
   }
 
-  Future<List<Map<String, dynamic>>> getLiveCategories() async {
+  Future<Map<String, dynamic>> getAccountInfo({bool forceRefresh = false}) async {
+    final list = await _getListWithCache(
+      '$_baseUrl&action=get_account_info',
+      ttl: _accountInfoTtl,
+      forceRefresh: forceRefresh,
+    );
+
+    if (list.isNotEmpty) {
+      return list.first;
+    }
+    return <String, dynamic>{};
+  }
+
+  Future<List<Map<String, dynamic>>> getLiveCategories({bool forceRefresh = false}) async {
     try {
-      return await _getListWithCache('$_baseUrl&action=get_live_categories');
+      return await _getListWithCache(
+        '$_baseUrl&action=get_live_categories',
+        ttl: _categoriesTtl,
+        forceRefresh: forceRefresh,
+      );
     } catch (e) {
       debugPrint('getLiveCategories error: $e');
       return [];
     }
   }
 
-  Future<List<Map<String, dynamic>>> getLiveStreams({int? categoryId}) async {
+  Future<List<Map<String, dynamic>>> getLiveStreams({int? categoryId, bool forceRefresh = false}) async {
     try {
       var url = '$_baseUrl&action=get_live_streams';
       if (categoryId != null) url += '&category_id=$categoryId';
       return await _getListWithCache(
         url,
         options: Options(receiveTimeout: const Duration(seconds: 60)),
+        ttl: _categoryItemsTtl,
+        forceRefresh: forceRefresh,
       );
     } catch (e) {
       debugPrint('getLiveStreams error: $e');
@@ -121,16 +175,20 @@ class XtreamApi {
     }
   }
 
-  Future<List<Map<String, dynamic>>> getVodCategories() async {
+  Future<List<Map<String, dynamic>>> getVodCategories({bool forceRefresh = false}) async {
     try {
-      return await _getListWithCache('$_baseUrl&action=get_vod_categories');
+      return await _getListWithCache(
+        '$_baseUrl&action=get_vod_categories',
+        ttl: _categoriesTtl,
+        forceRefresh: forceRefresh,
+      );
     } catch (e) {
       debugPrint('getVodCategories error: $e');
       return [];
     }
   }
 
-  Future<List<Map<String, dynamic>>> getVodStreams({int? categoryId}) async {
+  Future<List<Map<String, dynamic>>> getVodStreams({int? categoryId, bool forceRefresh = false}) async {
     try {
       var url = '$_baseUrl&action=get_vod_streams';
       if (categoryId != null) {
@@ -139,6 +197,8 @@ class XtreamApi {
       return await _getListWithCache(
         url,
         options: Options(receiveTimeout: const Duration(seconds: 60)),
+        ttl: _categoryItemsTtl,
+        forceRefresh: forceRefresh,
       );
     } catch (e) {
       debugPrint('getVodStreams error: $e');
@@ -146,8 +206,7 @@ class XtreamApi {
     }
   }
 
-
-  Future<List<Map<String, dynamic>>> getVodStreamsStrict({int? categoryId}) async {
+  Future<List<Map<String, dynamic>>> getVodStreamsStrict({int? categoryId, bool forceRefresh = false}) async {
     var url = '$_baseUrl&action=get_vod_streams';
     if (categoryId != null) {
       url += '&category_id=$categoryId';
@@ -155,20 +214,25 @@ class XtreamApi {
     return _getListWithCache(
       url,
       options: Options(receiveTimeout: const Duration(seconds: 60)),
+      ttl: _categoryItemsTtl,
+      forceRefresh: forceRefresh,
     );
   }
 
-
-  Future<List<Map<String, dynamic>>> getSeriesCategories() async {
+  Future<List<Map<String, dynamic>>> getSeriesCategories({bool forceRefresh = false}) async {
     try {
-      return await _getListWithCache('$_baseUrl&action=get_series_categories');
+      return await _getListWithCache(
+        '$_baseUrl&action=get_series_categories',
+        ttl: _categoriesTtl,
+        forceRefresh: forceRefresh,
+      );
     } catch (e) {
       debugPrint('getSeriesCategories error: $e');
       return [];
     }
   }
 
-  Future<List<Map<String, dynamic>>> getSeries({int? categoryId}) async {
+  Future<List<Map<String, dynamic>>> getSeries({int? categoryId, bool forceRefresh = false}) async {
     try {
       var url = '$_baseUrl&action=get_series';
       if (categoryId != null) {
@@ -177,6 +241,8 @@ class XtreamApi {
       return await _getListWithCache(
         url,
         options: Options(receiveTimeout: const Duration(seconds: 60)),
+        ttl: _categoryItemsTtl,
+        forceRefresh: forceRefresh,
       );
     } catch (e) {
       debugPrint('getSeries error: $e');
@@ -218,7 +284,15 @@ class XtreamApi {
       return data.whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
     }
     if (data is Map) {
-      return data.values.whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
+      final asMap = Map<String, dynamic>.from(data);
+      if (asMap.values.every((value) => value is! Map)) {
+        return <Map<String, dynamic>>[asMap];
+      }
+
+      return asMap.values
+          .whereType<Map>()
+          .map((e) => Map<String, dynamic>.from(e))
+          .toList();
     }
     return [];
   }
@@ -226,15 +300,21 @@ class XtreamApi {
   Future<List<Map<String, dynamic>>> _getListWithCache(
     String url, {
     Options? options,
+    Duration ttl = _categoryItemsTtl,
+    bool forceRefresh = false,
   }) async {
-    final cached = _memoryResponseCache[url];
-    if (cached is List<Map<String, dynamic>>) {
-      return cached.map((item) => Map<String, dynamic>.from(item)).toList();
+    final cachedEntry = _memoryResponseCache[url];
+    if (!forceRefresh && cachedEntry != null && !cachedEntry.isExpired) {
+      return cachedEntry.data.map((item) => Map<String, dynamic>.from(item)).toList();
     }
 
     final response = await _dio.get(url, options: options);
     final parsed = _parseList(response.data);
-    _memoryResponseCache[url] = parsed.map((item) => Map<String, dynamic>.from(item)).toList();
+    _memoryResponseCache[url] = _MemoryCacheEntry(
+      data: parsed.map((item) => Map<String, dynamic>.from(item)).toList(),
+      cachedAt: DateTime.now(),
+      ttl: ttl,
+    );
     return parsed;
   }
 }
