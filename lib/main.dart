@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:window_manager/window_manager.dart';
 import 'data/datasources/remote/xtream_api.dart';
+import 'data/services/domain_manager.dart';
 import 'presentation/screens/profiles/profiles_screen.dart';
 import 'presentation/screens/favorites/favorites_screen.dart';
 import 'presentation/screens/series/series_categories_screen.dart';
@@ -12,6 +13,8 @@ void main() async {
   await windowManager.ensureInitialized();
   DartVLC.initialize();
   MediaKit.ensureInitialized();
+  // Restore the last-known-working domain before any API calls are made.
+  await DomainManager.instance.init();
   runApp(const MyApp());
 }
 
